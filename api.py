@@ -4,6 +4,9 @@ import json
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, List
+from apscheduler.schedulers.background import BackgroundScheduler
+from scraper import scrape_store
+import asyncio
 
 app = FastAPI(
     title="Geek Apparel Aggregator API",
@@ -27,6 +30,45 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row  # Returns query attributes mapped as dictionaries
     return conn
 
+# ==========================================
+# BACKGROUND SCHEDULER CONFIGURATION
+# ==========================================
+
+def run_scraper_job():
+    """Sync wrapper to execute the async crawler inside the scheduler thread."""
+    print("Background Job: Triggering automatic catalog scraper...")
+    try:
+        asyncio.run(scrape_store())
+    except Exception as e:
+        print(f"Background Job Error: {e}")
+
+# Initialize Background Scheduler
+scheduler = BackgroundScheduler()
+
+# Schedule the scraper to run automatically every 24 hours
+scheduler.add_job(run_scraper_job, "interval", hours=24)
+
+@app.on_event("startup")
+def start_scheduler():
+    """Starts the scheduler when the FastAPI application boots."""
+    if not scheduler.running:
+        scheduler.start()
+        print("FastAPI Startup: Background scheduler initiated.")
+        
+        # Trigger the scraper once immediately for testing/verification
+        print("FastAPI Startup: Queueing immediate one-off scrape task...")
+        scheduler.add_job(run_scraper_job)
+
+@app.on_event("shutdown")
+def stop_scheduler():
+    """Gracefully shuts down the scheduler when the server stops."""
+    if scheduler.running:
+        scheduler.shutdown()
+        print("FastAPI Shutdown: Background scheduler stopped.")
+        
+# ==========================================
+# API ENDPOINTS
+# ==========================================
 
 @app.get("/")
 def read_root():

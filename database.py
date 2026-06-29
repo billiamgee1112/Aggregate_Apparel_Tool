@@ -5,12 +5,12 @@ from models import GamingClothingItem
 
 DB_NAME = "apparel_aggregator.db"
 
+# database.py
 def init_db():
-    """Initializes the SQLite database and creates the products table."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
-    # Store franchise_tags as a serialized JSON string in SQLite
+    # Existing table creation
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS products (
             store_url TEXT PRIMARY KEY,
@@ -23,9 +23,15 @@ def init_db():
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    
+    # Add indexes for fast sorting, filtering, and text querying
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand_name);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_price ON products(current_price);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_name ON products(product_name);")
+    
     conn.commit()
     conn.close()
-    print("Database initialized successfully.")
+    print("Database and indexes initialized successfully.")
 
 def save_products_to_db(products: list[GamingClothingItem]):
     """Inserts or updates scraped products in the database."""
