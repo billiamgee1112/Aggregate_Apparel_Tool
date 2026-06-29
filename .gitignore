@@ -6,3 +6,6 @@ venv/
 
 # Ignore __pycache__ files
 __pycache__/
+
+# Ignore SQLite local databases
+*.db

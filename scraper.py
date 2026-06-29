@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 from models import GamingClothingItem
 from urllib.parse import urljoin, urlparse
 from playwright.async_api import async_playwright
+from database import init_db, save_products_to_db
 
 print("Script started.")
 # Load environment variables
@@ -202,14 +203,16 @@ async def scrape_store():
 
     print(f"\nTotal products extracted: {len(products)}")  
     
-    output_file = "products.json"
-    with open(output_file, "w", encoding="utf-8") as f:
-        json.dump([p.model_dump(mode='json') for p in products], f, indent=4)
-    print(f"Data saved successfully to {output_file}!")
+    # Save output to SQLite Database
+    try:
+        save_products_to_db(products)
+    except Exception as e:
+        print(f"Error saving to database: {e}")
 
 # Run the scraper
 if __name__ == "__main__":
     try:
+        init_db()  # Standardize DB on run
         asyncio.run(scrape_store())
     except Exception as e:
         print(f"Unhandled error: {e}")
