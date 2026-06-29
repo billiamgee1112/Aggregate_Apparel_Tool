@@ -4,8 +4,20 @@ venv/
 # Ignore environment variables
 .env
 
-# Ignore __pycache__ files
-__pycache__/
-
 # Ignore SQLite local databases
 *.db
+
+# Ignore Python runtime files and caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# Ignore local VS Code workspace settings
+.vscode/
+
+# Ignore system artifacts
+.DS_Store
+Thumbs.db
