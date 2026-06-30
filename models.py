@@ -9,3 +9,5 @@ class GamingClothingItem(BaseModel):
     image_url: HttpUrl
     brand_name: str
     franchise_tags: List[str]
+    is_active: Optional[bool] = True
+    category: str

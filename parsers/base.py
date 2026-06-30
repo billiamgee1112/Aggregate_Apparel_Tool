@@ -59,3 +59,23 @@ class BaseParser(ABC):
                 return " ".join(segment.capitalize() for segment in path_segments[1].split('-'))
             return " ".join(segment.capitalize() for segment in path_segments[0].split('-'))
         return fallback
+
+    @staticmethod
+    def deduce_category(product_name: str, store_url: str) -> str:
+        """Categorizes clothing items dynamically using simple keyword heuristics."""
+        text_to_search = f"{product_name} {store_url}".lower()
+        
+        # Mapping definitions
+        mapping = {
+            "jacket": ["jacket", "outerwear", "sukajan", "windbreaker", "coat"],
+            "hoodie": ["hoodie", "hood"],
+            "sweater": ["sweater", "sweatshirt", "crewneck", "pullover", "cardigan"],
+            "pants": ["pants", "sweatpants", "joggers", "loungewear", "leggings", "jeans"],
+            "t-shirt": ["t-shirt", "tshirt", "tee", "shirt", "tank top", "tank", "clovertop"]
+        }
+        
+        for category, keywords in mapping.items():
+            if any(kw in text_to_search for kw in keywords):
+                return category
+                
+        return "other"

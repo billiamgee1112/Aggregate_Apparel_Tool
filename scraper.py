@@ -83,14 +83,15 @@ async def scrape_single_store(context: BrowserContext, parser: BaseParser) -> li
                             continue
                         
                         item = GamingClothingItem(
-                            product_name=name,
-                            current_price=price,
-                            original_price=orig_price,
-                            store_url=s_url,
-                            image_url=img_url,
-                            brand_name=brand_name,
-                            franchise_tags=[parser.extract_franchise_tag(s_url, fallback=brand_name)]
-                        )
+                                product_name=name,
+                                current_price=price,
+                                original_price=orig_price,
+                                store_url=s_url,
+                                image_url=img_url,
+                                brand_name=brand_name,
+                                franchise_tags=[parser.extract_franchise_tag(s_url, fallback=brand_name)],
+                                category=parser.deduce_category(name, str(s_url)) # Categorization hook!
+                            )
                         scraped_items.append(item)
                     except Exception:
                         continue
@@ -143,7 +144,8 @@ async def scrape_single_store(context: BrowserContext, parser: BaseParser) -> li
                                 store_url=s_url,
                                 image_url=img_url,
                                 brand_name=brand_name,
-                                franchise_tags=[parser.extract_franchise_tag(s_url, fallback="Game Art")]
+                                franchise_tags=[parser.extract_franchise_tag(s_url, fallback=brand_name)],
+                                category=parser.deduce_category(name, str(s_url)) # Categorization hook!
                             )
                             scraped_items.append(item)
                         except Exception:

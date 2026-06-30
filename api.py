@@ -76,12 +76,12 @@ def read_root():
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # Fetch total items
-    cursor.execute("SELECT COUNT(*) FROM products")
+    # Fetch total active items
+    cursor.execute("SELECT COUNT(*) FROM products WHERE is_active = 1")
     total_products = cursor.fetchone()[0]
     
-    # Fetch count by brand
-    cursor.execute("SELECT brand_name, COUNT(*) FROM products GROUP BY brand_name")
+    # Fetch count by active brand
+    cursor.execute("SELECT brand_name, COUNT(*) FROM products WHERE is_active = 1 GROUP BY brand_name")
     brand_stats = {row[0]: row[1] for row in cursor.fetchall()}
     
     conn.close()
@@ -92,15 +92,15 @@ def read_root():
     }
 
 
-# api.py (Segment highlighting /products endpoint changes)
-
+# api.py
 @app.get("/products")
 def get_products(
     q: Optional[str] = Query(None, description="Search term for product names (using optimized FTS5)"),
     brand: Optional[str] = Query(None, description="Filter by brand"),
+    category: Optional[str] = Query(None, description="Filter by category (e.g. t-shirt, hoodie, sweater, jacket, pants)"),
     max_price: Optional[float] = Query(None, description="Filter by maximum price"),
     tag: Optional[str] = Query(None, description="Filter by franchise tag"),
-    sort: Optional[str] = Query("newest"),
+    sort: Optional[str] = Query("newest", description="Sort products (newest, cheapest, highest, discount)"),
     limit: int = Query(24, ge=1, le=100),
     offset: int = Query(0, ge=0)
 ):
@@ -118,15 +118,19 @@ def get_products(
         query = """
             SELECT p.* FROM products p
             JOIN products_fts f ON p.rowid = f.rowid
-            WHERE products_fts MATCH ?
+            WHERE products_fts MATCH ? AND p.is_active = 1
         """
         params.append(fts_query_string)
     else:
-        query = "SELECT * FROM products WHERE 1=1"
+        query = "SELECT * FROM products WHERE is_active = 1"
         
     if brand:
         query += " AND LOWER(p.brand_name) = ?" if q else " AND LOWER(brand_name) = ?"
         params.append(brand.lower())
+        
+    if category:
+        query += " AND LOWER(p.category) = ?" if q else " AND LOWER(category) = ?"
+        params.append(category.lower())
         
     if max_price is not None:
         query += " AND p.current_price <= ?" if q else " AND current_price <= ?"
@@ -141,6 +145,15 @@ def get_products(
         query += " ORDER BY p.current_price ASC" if q else " ORDER BY current_price ASC"
     elif sort == "highest":
         query += " ORDER BY p.current_price DESC" if q else " ORDER BY current_price DESC"
+    elif sort == "discount":
+        # Orders highest-percentage discounts first (only evaluates items where original_price exists and exceeds selling price)
+        query += """
+            ORDER BY CASE WHEN p.original_price IS NOT NULL AND p.original_price > p.current_price 
+            THEN ((p.original_price - p.current_price) / p.original_price) ELSE 0 END DESC
+        """ if q else """
+            ORDER BY CASE WHEN original_price IS NOT NULL AND original_price > current_price 
+            THEN ((original_price - current_price) / original_price) ELSE 0 END DESC
+        """
     else:  # newest
         query += " ORDER BY p.updated_at DESC" if q else " ORDER BY updated_at DESC"
         
@@ -161,6 +174,7 @@ def get_products(
             "original_price": row["original_price"],
             "image_url": row["image_url"],
             "brand_name": row["brand_name"],
+            "category": row["category"],
             "franchise_tags": json.loads(row["franchise_tags"]),  # Deserialize JSON string
             "updated_at": row["updated_at"]
         })
@@ -173,12 +187,32 @@ def get_products(
     }
 
 
+@app.get("/products/price-history")
+def get_price_history(store_url: str):
+    """Returns the full chronological price tracking timeline for a specific item url."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT price, recorded_at 
+        FROM price_history 
+        WHERE store_url = ? 
+        ORDER BY recorded_at ASC
+    """, (store_url,))
+    rows = cursor.fetchall()
+    conn.close()
+    
+    return [
+        {"price": row["price"], "recorded_at": row["recorded_at"]}
+        for row in rows
+    ]
+
+
 @app.get("/franchises")
 def get_franchises():
     """Returns a unique list of all franchise tags stored in the database."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT franchise_tags FROM products")
+    cursor.execute("SELECT franchise_tags FROM products WHERE is_active = 1")
     rows = cursor.fetchall()
     conn.close()
     
