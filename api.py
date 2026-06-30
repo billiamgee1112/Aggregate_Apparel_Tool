@@ -92,10 +92,11 @@ def read_root():
     }
 
 
-# api.py
+# api.py (Segment highlighting /products endpoint changes)
+
 @app.get("/products")
 def get_products(
-    q: Optional[str] = Query(None, description="Search term for product names (inexact)"),
+    q: Optional[str] = Query(None, description="Search term for product names (using optimized FTS5)"),
     brand: Optional[str] = Query(None, description="Filter by brand"),
     max_price: Optional[float] = Query(None, description="Filter by maximum price"),
     tag: Optional[str] = Query(None, description="Filter by franchise tag"),
@@ -106,35 +107,42 @@ def get_products(
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    query = "SELECT * FROM products WHERE 1=1"
     params = []
     
-    # Inexact search using SQL LIKE
     if q:
-        query += " AND product_name LIKE ?"
-        params.append(f"%{q}%") # Matches any name containing the query term
+        # Format search term to match multiple partial words: e.g. "zelda hoo" -> "zelda* AND hoo*"
+        search_terms = [f"{term.strip()}*" for term in q.split() if term.strip()]
+        fts_query_string = " AND ".join(search_terms)
+        
+        # Query utilizing index match and joining primary table data
+        query = """
+            SELECT p.* FROM products p
+            JOIN products_fts f ON p.rowid = f.rowid
+            WHERE products_fts MATCH ?
+        """
+        params.append(fts_query_string)
+    else:
+        query = "SELECT * FROM products WHERE 1=1"
         
     if brand:
-        query += " AND LOWER(brand_name) = ?"
+        query += " AND LOWER(p.brand_name) = ?" if q else " AND LOWER(brand_name) = ?"
         params.append(brand.lower())
         
     if max_price is not None:
-        query += " AND current_price <= ?"
+        query += " AND p.current_price <= ?" if q else " AND current_price <= ?"
         params.append(max_price)
         
     if tag:
-        query += " AND franchise_tags LIKE ?"
+        query += " AND p.franchise_tags LIKE ?" if q else " AND franchise_tags LIKE ?"
         params.append(f"%{tag}%")
-        
-    # Apply Sorting and Pagination ...
         
     # Apply Sorting
     if sort == "cheapest":
-        query += " ORDER BY current_price ASC"
+        query += " ORDER BY p.current_price ASC" if q else " ORDER BY current_price ASC"
     elif sort == "highest":
-        query += " ORDER BY current_price DESC"
+        query += " ORDER BY p.current_price DESC" if q else " ORDER BY current_price DESC"
     else:  # newest
-        query += " ORDER BY updated_at DESC"
+        query += " ORDER BY p.updated_at DESC" if q else " ORDER BY updated_at DESC"
         
     # Apply Pagination
     query += " LIMIT ? OFFSET ?"
