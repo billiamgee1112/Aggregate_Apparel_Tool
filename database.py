@@ -5,9 +5,171 @@ from models import GamingClothingItem
 
 DB_NAME = "apparel_aggregator.db"
 
+# Our baseline initial configuration ruleset
+DEFAULT_RULESET = [
+    # Final Fantasy series
+    ("final-fantasy", "Final Fantasy"),
+    ("final fantasy", "Final Fantasy"),
+    ("aerith", "Final Fantasy"),
+    ("cloud-strife", "Final Fantasy"),
+    ("tifa", "Final Fantasy"),
+    ("sephiroth", "Final Fantasy"),
+    
+    # League of Legends / LoL
+    ("league-of-legends", "League of Legends"),
+    ("league of legends", "League of Legends"),
+    ("lol", "League of Legends"),
+    ("ahri", "League of Legends"),
+    ("jinx", "League of Legends"),
+    ("yasuo", "League of Legends"),
+    
+    # Okami
+    ("okami", "Okami"),
+    ("amaterasu", "Okami"),
+    
+    # Black Clover
+    ("black-clover", "Black Clover"),
+    ("black clover", "Black Clover"),
+    ("asta", "Black Clover"),
+
+    # BioShock
+    ("bioshock", "BioShock"),
+    
+    # Black Myth: Wukong
+    ("black myth wukong", "Black Myth: Wukong"),
+    ("black-myth-wukong", "Black Myth: Wukong"),
+    ("wukongsweatshirt", "Black Myth: Wukong"),
+    ("wukong", "Black Myth: Wukong"),
+    
+    # Bloodborne
+    ("bloodborne", "Bloodborne"),
+    
+    # Crash Bandicoot
+    ("crash bandicoot", "Crash Bandicoot"),
+    ("crash-bandicoot", "Crash Bandicoot"),
+    
+    # Devil May Cry
+    ("devil may cry", "Devil May Cry"),
+    ("devil-may-cry", "Devil May Cry"),
+    ("dante", "Devil May Cry"),
+    ("nero", "Devil May Cry"),
+    ("vergil", "Devil May Cry"),
+    
+    # One Piece
+    ("one piece", "One Piece"),
+    ("one-piece", "One Piece"),
+    ("devil fruit", "One Piece"),
+    ("luffy", "One Piece"),
+    ("zoro", "One Piece"),
+    
+    # Marvel / Avengers
+    ("avengers", "Marvel"),
+    ("marvel", "Marvel"),
+    ("comics", "Marvel"),
+    
+    # Disney / Cinderella
+    ("cinderella", "Disney"),
+    ("disney", "Disney"),
+
+    # Acronyms & Abbreviations
+    ("loz", "The Legend of Zelda"),
+    ("zelda", "The Legend of Zelda"),
+    ("botw", "The Legend of Zelda"),
+    ("totk", "The Legend of Zelda"),
+    ("link-", "The Legend of Zelda"),
+    
+    ("ac", "Assassin's Creed"),
+    ("valhalla", "Assassin's Creed"),
+    ("ezio", "Assassin's Creed"),
+    
+    ("re", "Resident Evil"),
+    ("resident-evil", "Resident Evil"),
+    ("raccoon-", "Resident Evil"),
+    ("umbrella-", "Resident Evil"),
+    ("s.t.a.r.s.", "Resident Evil"),
+    
+    ("silent-hill", "Silent Hill"),
+    ("pyramid-head", "Silent Hill"),
+    
+    ("mario", "Super Mario"),
+    ("luigi", "Super Mario"),
+    ("peach", "Super Mario"),
+    ("bowser", "Super Mario"),
+    ("yoshi", "Super Mario"),
+    
+    ("sonic", "Sonic the Hedgehog"),
+    ("tails", "Sonic the Hedgehog"),
+    ("eggman", "Sonic the Hedgehog"),
+    ("shadow-stripe", "Sonic the Hedgehog"),
+    
+    ("cyberpunk", "Cyberpunk 2077"),
+    ("edgerunners", "Cyberpunk 2077"),
+    ("arasaka", "Cyberpunk 2077"),
+    ("night-city", "Cyberpunk 2077"),
+    
+    ("dbz", "Dragon Ball Z"),
+    ("goku", "Dragon Ball Z"),
+    ("vegeta", "Dragon Ball Z"),
+    
+    ("mortal-kombat", "Mortal Kombat"),
+    ("sub-zero", "Mortal Kombat"),
+    ("raiden", "Mortal Kombat"),
+    ("scorpion", "Mortal Kombat"),
+    
+    ("elden-ring", "Elden Ring"),
+    ("tarnished", "Elden Ring"),
+    ("malenia", "Elden Ring"),
+    
+    ("dark-souls", "Dark Souls"),
+    ("artorias", "Dark Souls"),
+    ("solaire", "Dark Souls"),
+    
+    ("fallout", "Fallout"),
+    ("vault-tec", "Fallout"),
+    ("nuka-cola", "Fallout"),
+    
+    ("curby", "Kirby"),
+    ("kirby", "Kirby"),
+    
+    ("witcher", "The Witcher"),
+    ("geralt", "The Witcher"),
+    
+    ("halo", "Halo"),
+    ("master-chief", "Halo"),
+    
+    ("destiny", "Destiny"),
+    ("minecraft", "Minecraft"),
+    ("hollow-knight", "Hollow Knight"),
+    ("nier", "NieR:Automata"),
+    ("2b", "NieR:Automata"),
+    ("genshin", "Genshin Impact"),
+    ("azur-lane", "Azur Lane"),
+    ("street-fighter", "Street Fighter"),
+    ("chun-li", "Street Fighter"),
+    ("mega-man", "Mega Man"),
+    ("borderlands", "Borderlands")
+]
+
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
+    
+    # 0. Dynamic Franchise Mapping Rules Engine DB table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS franchise_mappings (
+            keyword TEXT PRIMARY KEY,
+            franchise_name TEXT NOT NULL
+        )
+    """)
+    
+    # Seed static ruleset default rows cleanly if list is empty
+    cursor.execute("SELECT COUNT(*) FROM franchise_mappings")
+    if cursor.fetchone()[0] == 0:
+        cursor.executemany(
+            "INSERT OR IGNORE INTO franchise_mappings (keyword, franchise_name) VALUES (?, ?)", 
+            [(rule[0].lower().strip(), rule[1]) for rule in DEFAULT_RULESET]
+        )
+        print(f"Seeded {len(DEFAULT_RULESET)} baseline franchise mappings.")
     
     # 1. Primary Relational Table with category and active states
     cursor.execute("""

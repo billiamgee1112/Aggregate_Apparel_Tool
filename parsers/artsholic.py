@@ -44,4 +44,23 @@ class ArtsholicParser(BaseParser):
             
         image_url = urljoin(base_url, raw_image_url) if raw_image_url else "https://example.com/placeholder.jpg"
 
-        return product_name, current_price, original_price, store_url, image_url
+        # WooCommerce Deep-Category Class Hack (Auto-mapping!)
+        scraped_tag = ""
+        classes = product.get("class", [])
+        for cls in classes:
+            if cls.startswith("product_tag-"):
+                tag_slug = cls.replace("product_tag-", "")
+                
+                # Filter out generic tags so we lock onto actual game names
+                generic_tags = {
+                    "shirt", "hoodie", "jacket", "sweater", "sweatshirt", "top", "tee", 
+                    "shorts", "pants", "caps", "clothing", "apparel", "game-art", "art"
+                }
+                if tag_slug not in generic_tags:
+                    # e.g., product_tag-doom-eternal -> "Doom Eternal"
+                    scraped_tag = " ".join(part.capitalize() for part in tag_slug.split("-"))
+                    break
+
+        metadata = {"scraped_tag": scraped_tag}
+
+        return product_name, current_price, original_price, store_url, image_url, metadata

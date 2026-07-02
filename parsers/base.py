@@ -1,7 +1,9 @@
 # parsers/base.py
+import re
 from abc import ABC, abstractmethod
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
+from parsers.franchise_map import clean_franchise_tag
 
 class BaseParser(ABC):
     
@@ -38,7 +40,7 @@ class BaseParser(ABC):
         """Parses a raw product element.
         
         Returns:
-            tuple: (product_name, current_price, original_price, store_url, image_url)
+            tuple: (product_name, current_price, original_price, store_url, image_url, metadata)
         """
         pass
 
@@ -50,14 +52,85 @@ class BaseParser(ABC):
         return float(cleaned_digits) if cleaned_digits else 0.0
 
     @staticmethod
-    def extract_franchise_tag(store_url: str, fallback: str = "Geek Apparel") -> str:
-        """Deduces a clean franchise name using URL segments."""
-        parsed_path = urlparse(store_url).path
-        path_segments = [seg for segment in parsed_path.split('/') if (seg := segment.replace('.html', '').strip())]
+    def deduce_franchise_from_title(product_name: str) -> str:
+        """Deduces the franchise name dynamically by cutting off trailing e-commerce descriptors."""
+        # Stop Words that signal the end of the Franchise Name and begining of product detail junk
+        truncation_triggers = {
+            "shirt", "hoodie", "jacket", "sweater", "sweatshirt", "top", "tee", 
+            "t-shirt", "tshirt", "pants", "socks", "outerwear", "apparel", "game", 
+            "streetwear", "vintage", "unisex", "oversized", "graphics", "graphic", 
+            "casual", "clothing", "gear", "wear", "cap", "caps", "shorts", "tank", 
+            "backpack", "bag", "bags", "crewneck", "pullover", "cardigan", "mens", 
+            "womens", "kids", "embroided", "embroidery", "patch", "print", "printed", 
+            "retro", "messenger", "flight", "collectible", "official", "officially", 
+            "licensed", "unisex-adult", "father", "fathers", "dad", "animated"
+        }
+        
+        # Parse tokens
+        tokens = product_name.split()
+        franchise_tokens = []
+        
+        for token in tokens:
+            # Strip punctuation and lower-case to verify keywords
+            clean_token = re.sub(r"[^\w\s-]", "", token).lower()
+            if clean_token in truncation_triggers:
+                break
+            franchise_tokens.append(token)
+            
+        if franchise_tokens:
+            return " ".join(franchise_tokens).strip(",- ")
+        return product_name
+
+    @staticmethod
+    def extract_franchise_tag(store_url: str, product_name: str = "", scraped_tag: str = "", fallback: str = "Geek Apparel") -> str:
+        """Deduces a clean franchise name using HTML markers, database mappings, and smart NLP tokenizing."""
+        # 1. Prioritize DOM Tags extracted directly from the HTML product card!
+        if scraped_tag:
+            scraped_tag_clean = scraped_tag.replace("Game Art", "").strip()
+            # Double-check it against dynamic custom mappings in the database (e.g. mapping abbreviation: "loz" -> "The Legend of Zelda")
+            matched_tag = clean_franchise_tag(scraped_tag_clean, store_url, None)
+            if matched_tag:
+                return matched_tag
+            return scraped_tag_clean
+
+        # 2. Check explicitly against mapping rules table database-side
+        matched_tag = clean_franchise_tag(product_name, store_url, None)
+        if matched_tag:
+            return matched_tag
+            
+        # 3. Apply the Smart Title Tokenizer on the Product Name
+        deduced_tag = BaseParser.deduce_franchise_from_title(product_name)
+        if deduced_tag and deduced_tag != product_name:
+            matched_deduced = clean_franchise_tag(deduced_tag, store_url, None)
+            if matched_deduced:
+                return matched_deduced
+            return deduced_tag
+
+        # 4. ADVANCED SYSTEM FALLBACK: Use URL Slug Parsing
+        # This catches items like "Fractured" where URL is "expedition-33-shirt", separating game names automatically!
+        parsed_url = urlparse(store_url)
+        path_segments = [seg for segment in parsed_url.path.split('/') if segment.strip()]
+        
         if path_segments:
-            if path_segments[0].lower() in ["products", "collections", "product", "collection"] and len(path_segments) > 1:
-                return " ".join(segment.capitalize() for segment in path_segments[1].split('-'))
-            return " ".join(segment.capitalize() for segment in path_segments[0].split('-'))
+            # Extract final trailing directory node (e.g. "expedition-33-shirt")
+            last_segment = path_segments[-1].replace(".html", "").replace(".asp", "")
+            spaced_segment = last_segment.replace("-", " ").replace("_", " ")
+            
+            # Feed segment back into stop-word truncation ("expedition 33 shirt" -> "expedition 33")
+            deduced_url_tag = BaseParser.deduce_franchise_from_title(spaced_segment)
+            
+            if deduced_url_tag:
+                final_candidate = " ".join(word.capitalize() for word in deduced_url_tag.split())
+                
+                # Exclude standard/plain path segment variables
+                generic_exclusions = {"product", "apparel", "collections", "new", "all", "other", "item"}
+                if final_candidate.lower() not in generic_exclusions:
+                    # Double-check if the cleaned slug segment matches database mapping dictionary
+                    matched_slug = clean_franchise_tag(final_candidate, store_url, None)
+                    if matched_slug:
+                        return matched_slug
+                    return final_candidate
+
         return fallback
 
     @staticmethod

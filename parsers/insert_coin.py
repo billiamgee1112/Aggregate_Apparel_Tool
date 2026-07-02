@@ -56,4 +56,12 @@ class InsertCoinParser(BaseParser):
             raw_image_url = img_el.get("src") or img_el.get("data-src") or ""
         image_url = urljoin(base_url, raw_image_url) if raw_image_url else "https://example.com/placeholder.jpg"
 
-        return product_name, current_price, original_price, store_url, image_url
+        # 5. Extract Dynamic Store Game Tag (Solves automatic tracking!)
+        scraped_tag = ""
+        game_el = product_el.select_one(".m-listing-item__game") or product_el.select_one("[class*='game']")
+        if game_el:
+            scraped_tag = game_el.get_text(strip=True)
+
+        metadata = {"scraped_tag": scraped_tag}
+
+        return product_name, current_price, original_price, store_url, image_url, metadata

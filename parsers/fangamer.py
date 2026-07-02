@@ -85,4 +85,4 @@ class FangamerParser(BaseParser):
 
         image_url = urljoin(base_url, raw_image_url) if raw_image_url else "https://example.com/placeholder.jpg"
 
-        return product_name, current_price, original_price, store_url, image_url
+        return product_name, current_price, original_price, store_url, image_url, {}

@@ -26,7 +26,12 @@ async def scroll_page_to_end(page, item_selector, max_attempts=15):
     print("Executing target-oriented infinite scrolling loop...")
     for attempt in range(max_attempts):
         locator = page.locator(item_selector)
-        current_items = await locator.count()
+        # Avoid hanging if elements are unresponsive 
+        try:
+            current_items = await locator.count()
+        except Exception:
+            current_items = 0
+            
         print(f"Attempt {attempt + 1}: Live items found in browser DOM = {current_items}")
 
         if current_items > prev_item_count:
@@ -34,7 +39,7 @@ async def scroll_page_to_end(page, item_selector, max_attempts=15):
             prev_item_count = current_items
             try:
                 last_item = locator.last
-                await last_item.scroll_into_view_if_needed()
+                await last_item.scroll_into_view_if_needed(timeout=2000)
             except Exception:
                 pass
         else:
@@ -44,7 +49,7 @@ async def scroll_page_to_end(page, item_selector, max_attempts=15):
             print("All dynamic products appear to have loaded successfully!")
             break
 
-        await page.wait_for_timeout(2000)
+        await page.wait_for_timeout(1500)
 
 
 async def scrape_single_store(context: BrowserContext, parser: BaseParser) -> list[GamingClothingItem]:
@@ -52,16 +57,28 @@ async def scrape_single_store(context: BrowserContext, parser: BaseParser) -> li
     brand_name = parser.brand_name
     scraped_items = []
     
-    # Spawn a dedicated page tab for this parser task
+    # Spawn a dedicated page tab for this parser task with customized navigation limits
     page = await context.new_page()
-    print(f"[{brand_name}] Task Started: Initialized active page tab.")
+    page.set_default_navigation_timeout(60000)  # Bump to 60 seconds limit for slower web servers
+    page.set_default_timeout(30000)
+    
+    # Block heavy image/styling resources to speed up page parsing speed and prevent CDNs timeouts
+    async def block_resources(route):
+        if route.request.resource_type in ["image", "stylesheet", "media", "font"]:
+            await route.abort()
+        else:
+            await route.continue_()
+            
+    await page.route("**/*", block_resources)
+    print(f"[{brand_name}] Task Started: Initialized active page tab with resource filters.")
 
     try:
         if parser.pagination_type == "infinite_scroll":
             target_url = parser.url_pattern
             print(f"[{brand_name}] Opening target landing URL: {target_url}...")
             try:
-                await page.goto(target_url, wait_until="networkidle")
+                # Use "domcontentloaded" – much faster, doesn't wait for pixel loaders or tracking scripts
+                await page.goto(target_url, wait_until="domcontentloaded")
                 await scroll_page_to_end(page, parser.item_selector)
                 page_content = await page.content()
                 
@@ -71,7 +88,7 @@ async def scrape_single_store(context: BrowserContext, parser: BaseParser) -> li
                 
                 for product_el in product_elements:
                     try:
-                        name, price, orig_price, s_url, img_url = parser.parse_product(product_el, target_url)
+                        name, price, orig_price, s_url, img_url, metadata = parser.parse_product(product_el, target_url)
                         if not name:
                             continue
                         
@@ -82,6 +99,14 @@ async def scrape_single_store(context: BrowserContext, parser: BaseParser) -> li
                         if has_exclusion and not is_clothing:
                             continue
                         
+                        scraped_tag = metadata.get("scraped_tag", "") if isinstance(metadata, dict) else ""
+                        franchise_tag = parser.extract_franchise_tag(
+                            str(s_url), 
+                            product_name=name, 
+                            scraped_tag=scraped_tag, 
+                            fallback=brand_name
+                        )
+
                         item = GamingClothingItem(
                                 product_name=name,
                                 current_price=price,
@@ -89,8 +114,8 @@ async def scrape_single_store(context: BrowserContext, parser: BaseParser) -> li
                                 store_url=s_url,
                                 image_url=img_url,
                                 brand_name=brand_name,
-                                franchise_tags=[parser.extract_franchise_tag(s_url, fallback=brand_name)],
-                                category=parser.deduce_category(name, str(s_url)) # Categorization hook!
+                                franchise_tags=[franchise_tag],
+                                category=parser.deduce_category(name, str(s_url))
                             )
                         scraped_items.append(item)
                     except Exception:
@@ -108,9 +133,10 @@ async def scrape_single_store(context: BrowserContext, parser: BaseParser) -> li
                 print(f"[{brand_name}] Scraping Page {page_num}: {target_url}")
                 
                 try:
-                    response = await page.goto(target_url, wait_until="load")
+                    # Switch to "domcontentloaded" wait criteria for lightning fast scrape runs
+                    response = await page.goto(target_url, wait_until="domcontentloaded")
                     
-                    if response.status == 404:
+                    if response and response.status == 404:
                         print(f"[{brand_name}] Reached last page (Status 404) at page {page_num}.")
                         break
                         
@@ -126,7 +152,7 @@ async def scrape_single_store(context: BrowserContext, parser: BaseParser) -> li
                     
                     for product_el in product_elements:
                         try:
-                            name, price, orig_price, s_url, img_url = parser.parse_product(product_el, target_url)
+                            name, price, orig_price, s_url, img_url, metadata = parser.parse_product(product_el, target_url)
                             if not name:
                                 continue
                             
@@ -137,6 +163,14 @@ async def scrape_single_store(context: BrowserContext, parser: BaseParser) -> li
                             if has_exclusion and not is_clothing:
                                 continue
                             
+                            scraped_tag = metadata.get("scraped_tag", "") if isinstance(metadata, dict) else ""
+                            franchise_tag = parser.extract_franchise_tag(
+                                str(s_url), 
+                                product_name=name, 
+                                scraped_tag=scraped_tag, 
+                                fallback=brand_name
+                            )
+
                             item = GamingClothingItem(
                                 product_name=name,
                                 current_price=price,
@@ -144,16 +178,20 @@ async def scrape_single_store(context: BrowserContext, parser: BaseParser) -> li
                                 store_url=s_url,
                                 image_url=img_url,
                                 brand_name=brand_name,
-                                franchise_tags=[parser.extract_franchise_tag(s_url, fallback=brand_name)],
-                                category=parser.deduce_category(name, str(s_url)) # Categorization hook!
+                                franchise_tags=[franchise_tag],
+                                category=parser.deduce_category(name, str(s_url))
                             )
                             scraped_items.append(item)
                         except Exception:
                             continue
                         
                 except Exception as e:
-                    print(f"[{brand_name}] Error on page {page_num}: {e}")
-                    break
+                    # Provide helpful log but allow loop navigation to retry next segment if hit transient glitched page
+                    print(f"[{brand_name}] Warning/Timeout on page {page_num}: {e}")
+                    # If page 1 completely times out, break so we don't spam 50 bad runs, otherwise try next
+                    if page_num == 1:
+                        break
+                    continue
 
     finally:
         # Prevent page/tab leaks by closing the tab once done
@@ -179,27 +217,24 @@ async def scrape_store():
         # Run all scraping tasks in parallel concurrently!
         print(f"Launching {len(tasks)} store scrape tasks concurrently...")
         results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        # Merge and aggregate collected items from each task
-        for result in results:
-            if isinstance(result, list):
-                all_scraped_items.extend(result)
-            elif isinstance(result, Exception):
-                print(f"Parallel Task Error occurred: {result}")
+        
+        for task_idx, parsed_list in enumerate(results):
+            parser = ACTIVE_PARSERS[task_idx]
+            if isinstance(parsed_list, Exception):
+                print(f"CRITICAL: Concurrency execution failed for store task [{parser.brand_name}]: {parsed_list}")
+            else:
+                print(f"Concurrency Result: Gathered {len(parsed_list)} parsed items from [{parser.brand_name}].")
+                all_scraped_items.extend(parsed_list)
 
         await browser.close()
 
-    print(f"\nTotal merged aggregated products in pipeline: {len(all_scraped_items)}")
-    
-    try:
-         save_products_to_db(all_scraped_items)
-    except Exception as e:
-        print(f"Error saving to database: {e}")
+    if all_scraped_items:
+        save_products_to_db(all_scraped_items)
+        print(f"Catalog Aggregation completed successfully! Added total of {len(all_scraped_items)} active garments.")
+    else:
+        print("Scraper warning: No valid apparel items extracted during concurrence session.")
 
 
 if __name__ == "__main__":
-    try:
-        init_db()
-        asyncio.run(scrape_store())
-    except Exception as e:
-        print(f"Unhandled error: {e}")
+    init_db()
+    asyncio.run(scrape_store())

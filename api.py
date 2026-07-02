@@ -4,6 +4,7 @@ import json
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, List
+from pydantic import BaseModel
 from apscheduler.schedulers.background import BackgroundScheduler
 from scraper import scrape_store
 import asyncio
@@ -91,8 +92,6 @@ def read_root():
         "brand_aggregations": brand_stats
     }
 
-
-# api.py
 @app.get("/products")
 def get_products(
     q: Optional[str] = Query(None, description="Search term for product names (using optimized FTS5)"),
@@ -224,3 +223,55 @@ def get_franchises():
                 unique_tags.add(tag)
                 
     return sorted(list(unique_tags))
+
+
+# ==========================================
+# ADMINISTRATIVE METADATA MANAGEMENT (DYNAMIC TAXONOMY)
+# ==========================================
+
+class TaxonomyMappingRequest(BaseModel):
+    keyword: str
+    franchise_name: str
+
+
+@app.post("/admin/mappings")
+def add_new_franchise_mapping(payload: TaxonomyMappingRequest):
+    """Creates or replaces a dynamic keyword-to-franchise map on the database level."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT OR REPLACE INTO franchise_mappings (keyword, franchise_name)
+            VALUES (?, ?)
+        """, (payload.keyword.lower().strip(), payload.franchise_name.strip()))
+        conn.commit()
+        return {"status": "success", "message": f"Mapped '{payload.keyword.lower()}' to '{payload.franchise_name}'"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+    finally:
+        conn.close()
+
+
+@app.get("/admin/unmapped")
+def get_unmapped_products():
+    """Identifies products currently fallback tagged with their vendor brand name."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT DISTINCT product_name, store_url, brand_name 
+        FROM products 
+        WHERE is_active = 1 
+          AND (
+            franchise_tags LIKE '%"' || brand_name || '"%' 
+            OR franchise_tags LIKE '%"Geek Apparel"%'
+            OR franchise_tags = '[]'
+          )
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    
+    results = [dict(row) for row in rows]
+    return {
+        "unmapped_count": len(results),
+        "results": results
+    }
