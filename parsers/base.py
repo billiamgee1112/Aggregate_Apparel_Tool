@@ -1,7 +1,7 @@
 # parsers/base.py
 import re
 from abc import ABC, abstractmethod
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 from bs4 import BeautifulSoup
 from parsers.franchise_map import clean_franchise_tag
 
@@ -109,7 +109,7 @@ class BaseParser(ABC):
         # 4. ADVANCED SYSTEM FALLBACK: Use URL Slug Parsing
         # This catches items like "Fractured" where URL is "expedition-33-shirt", separating game names automatically!
         parsed_url = urlparse(store_url)
-        path_segments = [seg for segment in parsed_url.path.split('/') if segment.strip()]
+        path_segments = [segment for segment in parsed_url.path.split('/') if segment.strip()]
         
         if path_segments:
             # Extract final trailing directory node (e.g. "expedition-33-shirt")

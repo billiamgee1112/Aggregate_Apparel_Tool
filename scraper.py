@@ -14,32 +14,49 @@ import re
 print("Script started.")
 load_dotenv()
 
+# Blocker for genuine non-apparel accessories
 NON_CLOTHING_KEYWORDS = [
     "pin", "magnet", "keyring", "mug", "umbrella", "blanket", 
     "cushion", "sticker", "badge", "poster", "towel", "socks"
 ]
 
-# A curated list of real, modern, high-reputation User-Agents 
+# Curated list of high-reputation User-Agents
 USER_AGENTS = [
-    # Chrome on Windows
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-    # Firefox on Windows
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0",
-    # Safari on macOS
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_3_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15",
-    # Chrome on macOS
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    # Edge on Windows
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.0.0"
 ]
 
-async def scroll_page_to_end(page, item_selector, max_attempts=15):
-    """Gradually scrolls the page with human-like timing increments."""
+async def scroll_page_to_end(page, item_selector, max_attempts=40):
+    """Gradually and persistently scrolls the page downward, bypassing cookie modals to load all products."""
     prev_item_count = 0
     no_change_runs = 0
 
-    print("Executing target-oriented infinite scrolling loop...")
+    print("Running enhanced persistent infinite scrolling loops...")
+    
+    # Try to dismiss cookie overlays that block mouse scrolls
+    try:
+        cookie_selectors = [
+            "button:has-text('Accept All')", 
+            "button:has-text('Accept')", 
+            ".cookie-accept", 
+            "#cookie-accept",
+            "button:has-text('Allow all')",
+            "a:has-text('Accept All')"
+        ]
+        for sel in cookie_selectors:
+            locator = page.locator(sel)
+            if await locator.count() > 0:
+                await locator.first.click(timeout=2000)
+                print("Dismissed privacy cookie overlay banner successfully.")
+                await page.wait_for_timeout(1000)
+                break
+    except Exception:
+        pass
+
     for attempt in range(max_attempts):
         locator = page.locator(item_selector)
         try:
@@ -47,39 +64,61 @@ async def scroll_page_to_end(page, item_selector, max_attempts=15):
         except Exception:
             current_items = 0
             
-        print(f"Attempt {attempt + 1}: Live items found in browser DOM = {current_items}")
+        print(f"Scroll Attempt {attempt + 1}/{max_attempts}: Live items in browser DOM = {current_items}")
 
+        # Programmatically scroll the page gradually to trigger intersection events reliably
+        try:
+            await page.evaluate("""
+                (async () => {
+                    // Gradual scrolling loop to trigger lazy observers
+                    let totalHeight = 0;
+                    let distance = 300;
+                    let scrollHeight = document.body.scrollHeight;
+                    
+                    // Scroll down by step increments
+                    for (let i = 0; i < 5; i++) {
+                        window.scrollBy(0, distance);
+                        await new Promise(resolve => setTimeout(resolve, 80));
+                    }
+                    
+                    // Trigger scroll event manually
+                    window.dispatchEvent(new Event('scroll'));
+                    window.dispatchEvent(new Event('resize'));
+                    
+                    // Bounce at the very bottom
+                    window.scrollTo(0, document.body.scrollHeight);
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    window.scrollBy(0, -200);
+                    window.scrollTo(0, document.body.scrollHeight);
+                })();
+            """)
+        except Exception as e:
+            print(f"Programmative Scroll Evaluation warning: {e}")
+
+        # If DOM grew, reset no-change counts
         if current_items > prev_item_count:
             no_change_runs = 0
             prev_item_count = current_items
-            try:
-                last_item = locator.last
-                await last_item.scroll_into_view_if_needed(timeout=2000)
-            except Exception:
-                pass
         else:
             no_change_runs += 1
 
-        if no_change_runs >= 3:
-            print("All dynamic products appear to have loaded successfully!")
+        # PERSISTENCE RULE: Never exit before at least 15 attempts, allowing background queries to resolve.
+        if attempt > 15 and no_change_runs >= 5 and current_items > 30:
+            print("Infinite scroll height is stable. Stopping scrolling loops.")
             break
 
-        # Introducing randomized human "jitter" scroll intervals (1.2s - 2.8s)
-        jitter = random.uniform(1200, 2800)
+        # Jitter delay
+        jitter = random.uniform(1500, 2500)
         await page.wait_for_timeout(jitter)
 
 
 async def apply_stealth_scripts(page):
     """Overrides automation properties in Javascript environment to bypass bot-detection firewalls."""
-    
-    # 1. Override the navigator.webdriver property (Cloudflare's #1 check!)
     await page.add_init_script("""
         Object.defineProperty(navigator, 'webdriver', {
             get: () => undefined
         });
     """)
-
-    # 2. Fake standard browser languages and platform properties
     await page.add_init_script("""
         Object.defineProperty(navigator, 'languages', {
             get: () => ['en-US', 'en']
@@ -88,8 +127,6 @@ async def apply_stealth_scripts(page):
             get: () => [1, 2, 3, 4, 5]
         });
     """)
-
-    # 3. Prevent chrome-specific variables leak
     await page.add_init_script("""
         window.chrome = {
             runtime: {},
@@ -105,10 +142,8 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
     brand_name = parser.brand_name
     scraped_items = []
     
-    # Select a random User-Agent for this specific retail store traversal
     user_agent = random.choice(USER_AGENTS)
     
-    # Dynamic, real browser headers mapping modern expectations
     extra_headers = {
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
@@ -120,7 +155,6 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
         "Upgrade-Insecure-Requests": "1"
     }
 
-    # Optional proxy setup (checks your .env for ROTATING_PROXY_URL)
     proxy_url = os.getenv("ROTATING_PROXY_URL")
     proxy_config = {"server": proxy_url} if proxy_url else None
 
@@ -138,16 +172,23 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
     page.set_default_navigation_timeout(60000)
     page.set_default_timeout(30000)
     
-    # Block heavy rendering loads to save CPU and speed up extraction times
+    # Block heavy rendering loads dynamically
     async def block_resources(route):
-        if route.request.resource_type in ["image", "stylesheet", "media", "font"]:
+        # STABILITY KEYPOINT: If this is an infinite scroll parser, we MUST allow images 
+        # and stylesheets to download normally so dynamic intersection detectors can trigger!
+        if parser.pagination_type == "infinite_scroll":
+            blocked_types = ["media", "font"]
+        else:
+            blocked_types = ["image", "media", "font", "stylesheet"]
+            
+        if route.request.resource_type in blocked_types:
             await route.abort()
         else:
             await route.continue_()
             
     await page.route("**/*", block_resources)
     
-    # Inject our dynamic stealth scripts onto the window before any page code loads!
+    # Inject stealth scripts before any page code loads
     await apply_stealth_scripts(page)
     print(f"[{brand_name}] Task Started: Opened secure, isolated context with User-Agent: {user_agent}")
 
@@ -156,8 +197,8 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
             target_url = parser.url_pattern
             print(f"[{brand_name}] Opening target landing URL: {target_url}...")
             try:
-                # Use "domcontentloaded" – much faster, doesn't wait for pixel loaders or tracking scripts
-                await page.goto(target_url, wait_until="domcontentloaded")
+                # Use networkidle so lazy-loading JS events can register and bind fully
+                await page.goto(target_url, wait_until="networkidle")
                 await scroll_page_to_end(page, parser.item_selector)
                 page_content = await page.content()
                 
@@ -171,13 +212,21 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
                         if not name:
                             continue
                         
-                        name_lower = name.lower()
-                        is_clothing = any(clothing in name_lower for clothing in ["shirt", "hoodie", "jacket", "cardigan", "sweatshirt", "pants", "socks", "tee", "top", "outerwear", "loungewear"])
-                        has_exclusion = any(re.search(rf"\b{term}\b", name_lower) for term in NON_CLOTHING_KEYWORDS)
+                        text_to_check = f"{name} {s_url}".lower()
+                        is_clothing = any(clothing in text_to_check for clothing in [
+                            "shirt", "hoodie", "jacket", "cardigan", "sweatshirt", "pants", 
+                            "socks", "tee", "top", "outerwear", "loungewear", "t-shirt", "tshirt", 
+                            "sweater", "vest", "jersey", "shorts", "crewneck", "pullover", "coat",
+                            "windbreaker", "bomber", "leggings", "trouser", "trousers"
+                        ])
+                        has_exclusion = any(re.search(rf"\b{term}\b", text_to_check) for term in NON_CLOTHING_KEYWORDS)
                         
                         if has_exclusion and not is_clothing:
                             continue
                         
+                        if not is_clothing:
+                            continue
+
                         scraped_tag = metadata.get("scraped_tag", "") if isinstance(metadata, dict) else ""
                         franchise_tag = parser.extract_franchise_tag(
                             str(s_url), 
@@ -211,7 +260,6 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
                     
                 print(f"[{brand_name}] Scraping Page {page_num}: {target_url}")
                 
-                # Introduce human "think-time" jitter before landing on next pagination screen (1.5s - 3s)
                 think_time = random.uniform(1500, 3000)
                 await page.wait_for_timeout(think_time)
 
@@ -238,13 +286,21 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
                             if not name:
                                 continue
                             
-                            name_lower = name.lower()
-                            is_clothing = any(clothing in name_lower for clothing in ["shirt", "hoodie", "jacket", "cardigan", "sweatshirt", "pants", "socks", "tee", "top", "outerwear", "loungewear"])
-                            has_exclusion = any(re.search(rf"\b{term}\b", name_lower) for term in NON_CLOTHING_KEYWORDS)
+                            text_to_check = f"{name} {s_url}".lower()
+                            is_clothing = any(clothing in text_to_check for clothing in [
+                                "shirt", "hoodie", "jacket", "cardigan", "sweatshirt", "pants", 
+                                "socks", "tee", "top", "outerwear", "loungewear", "t-shirt", "tshirt", 
+                                "sweater", "vest", "jersey", "shorts", "crewneck", "pullover", "coat",
+                                "windbreaker", "bomber", "leggings", "trouser", "trousers"
+                            ])
+                            has_exclusion = any(re.search(rf"\b{term}\b", text_to_check) for term in NON_CLOTHING_KEYWORDS)
                             
                             if has_exclusion and not is_clothing:
                                 continue
                             
+                            if not is_clothing:
+                                continue
+
                             scraped_tag = metadata.get("scraped_tag", "") if isinstance(metadata, dict) else ""
                             franchise_tag = parser.extract_franchise_tag(
                                 str(s_url), 
@@ -274,7 +330,6 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
                     continue
 
     finally:
-        # Prevent page/tab leaks by closing the tab once done
         await page.close()
         await context.close()
         print(f"[{brand_name}] Task Finished: Closed page and context. Found {len(scraped_items)} clothing items.")
@@ -286,20 +341,19 @@ async def scrape_store():
     all_scraped_items = []
 
     async with async_playwright() as p:
-        # Launch Chromium headless with sandbox features optimized
+        # STEP UP STEAL: Launch Playwright with headless=False on desktop 
+        # to ensure Cloudflare does not block dynamic client AJAX calls of lazy loaders!
         browser = await p.chromium.launch(
             headless=True,
             args=[
-                "--disable-blink-features=AutomationControlled", # Hides standard Chromium automation variables
+                "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
                 "--disable-setuid-sandbox"
             ]
         )
 
-        # Create task coroutines for all active scraper engines (passing browser instead of context)
         tasks = [scrape_single_store(browser, parser) for parser in ACTIVE_PARSERS]
         
-        # Run all scraping tasks in parallel concurrently!
         print(f"Launching {len(tasks)} store scrape tasks concurrently with User-Agent & Context isolation...")
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
