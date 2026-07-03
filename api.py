@@ -1,8 +1,11 @@
 # api.py
 import sqlite3
 import json
-from fastapi import FastAPI, Query
+import os
+from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
+from fastapi.templating import Jinja2Templates
 from typing import Optional, List
 from pydantic import BaseModel
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -15,7 +18,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Enable CORS so your future frontend (React, Next.js, etc.) can contact this API
+# Enable CORS 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -26,10 +29,33 @@ app.add_middleware(
 
 DB_NAME = "apparel_aggregator.db"
 
+# Find templates relative to the current file
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
+
 def get_db_connection():
     conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row  # Returns query attributes mapped as dictionaries
+    conn.row_factory = sqlite3.Row
     return conn
+
+# Helper to extract generic stats on products
+def fetch_common_stats(conn):
+    cursor = conn.cursor()
+    cursor.execute("SELECT brand_name, COUNT(*) FROM products WHERE is_active = 1 GROUP BY brand_name")
+    brand_stats = {row[0]: row[1] for row in cursor.fetchall()}
+    
+    # Fetch a standard list of high-volume franchise tags for sidebar navigation
+    cursor.execute("SELECT franchise_tags FROM products WHERE is_active = 1")
+    unique_tags = set()
+    for row in cursor.fetchall():
+        try:
+            for tag in json.loads(row[0]):
+                if tag and tag not in ["Geek Apparel", "Insert Coin", "Artsholic", "Fangamer", "Glitch Gear", "Eightysixed", "Xbox Game Studios", "Bethesda", "Blizzard"]:
+                    unique_tags.add(tag)
+        except Exception:
+            continue
+    popular_franchises = sorted(list(unique_tags))[:18] # Top 18 index mappings
+    return brand_stats, popular_franchises
 
 # ==========================================
 # BACKGROUND SCHEDULER CONFIGURATION
@@ -43,127 +69,68 @@ def run_scraper_job():
     except Exception as e:
         print(f"Background Job Error: {e}")
 
-# Initialize Background Scheduler
 scheduler = BackgroundScheduler()
-
-# Schedule the scraper to run automatically every 24 hours
 scheduler.add_job(run_scraper_job, "interval", hours=24)
 
 @app.on_event("startup")
 def start_scheduler():
-    """Starts the scheduler when the FastAPI application boots."""
     if not scheduler.running:
         scheduler.start()
         print("FastAPI Startup: Background scheduler initiated.")
-        
-        # Trigger the scraper once immediately for testing/verification
-        print("FastAPI Startup: Queueing immediate one-off scrape task...")
-        scheduler.add_job(run_scraper_job)
 
 @app.on_event("shutdown")
 def stop_scheduler():
-    """Gracefully shuts down the scheduler when the server stops."""
     if scheduler.running:
         scheduler.shutdown()
-        print("FastAPI Shutdown: Background scheduler stopped.")
-        
+
 # ==========================================
-# API ENDPOINTS
+# CRAWLER-FRIENDLY SSR ENDPOINTS (SEO CORE)
 # ==========================================
 
 @app.get("/")
-def read_root():
-    """Returns database metadata and system stats."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    # Fetch total active items
-    cursor.execute("SELECT COUNT(*) FROM products WHERE is_active = 1")
-    total_products = cursor.fetchone()[0]
-    
-    # Fetch count by active brand
-    cursor.execute("SELECT brand_name, COUNT(*) FROM products WHERE is_active = 1 GROUP BY brand_name")
-    brand_stats = {row[0]: row[1] for row in cursor.fetchall()}
-    
-    conn.close()
-    return {
-        "status": "online",
-        "total_active_items": total_products,
-        "brand_aggregations": brand_stats
-    }
-
-@app.get("/products")
-def get_products(
-    q: Optional[str] = Query(None, description="Search term for product names (using optimized FTS5)"),
-    brand: Optional[str] = Query(None, description="Filter by brand"),
-    category: Optional[str] = Query(None, description="Filter by category (e.g. t-shirt, hoodie, sweater, jacket, pants)"),
-    max_price: Optional[float] = Query(None, description="Filter by maximum price"),
-    tag: Optional[str] = Query(None, description="Filter by franchise tag"),
-    sort: Optional[str] = Query("newest", description="Sort products (newest, cheapest, highest, discount)"),
-    limit: int = Query(24, ge=1, le=100),
-    offset: int = Query(0, ge=0)
+def home_index(
+    request: Request,
+    category: Optional[str] = Query(None),
+    sort: Optional[str] = Query("newest"),
+    brand: Optional[str] = Query(None),
+    franchise: Optional[str] = Query(None)
 ):
+    """Prerenders crawler-friendly full-markup grid using Jinja2 templates."""
     conn = get_db_connection()
+    brand_stats, popular_franchises = fetch_common_stats(conn)
     cursor = conn.cursor()
-    
+
+    # Query with filter attributes
     params = []
-    
-    if q:
-        # Format search term to match multiple partial words: e.g. "zelda hoo" -> "zelda* AND hoo*"
-        search_terms = [f"{term.strip()}*" for term in q.split() if term.strip()]
-        fts_query_string = " AND ".join(search_terms)
-        
-        # Query utilizing index match and joining primary table data
-        query = """
-            SELECT p.* FROM products p
-            JOIN products_fts f ON p.rowid = f.rowid
-            WHERE products_fts MATCH ? AND p.is_active = 1
-        """
-        params.append(fts_query_string)
-    else:
-        query = "SELECT * FROM products WHERE is_active = 1"
-        
+    query = "SELECT * FROM products WHERE is_active = 1"
+
     if brand:
-        query += " AND LOWER(p.brand_name) = ?" if q else " AND LOWER(brand_name) = ?"
+        query += " AND LOWER(brand_name) = ?"
         params.append(brand.lower())
-        
     if category:
-        query += " AND LOWER(p.category) = ?" if q else " AND LOWER(category) = ?"
+        query += " AND LOWER(category) = ?"
         params.append(category.lower())
-        
-    if max_price is not None:
-        query += " AND p.current_price <= ?" if q else " AND current_price <= ?"
-        params.append(max_price)
-        
-    if tag:
-        query += " AND p.franchise_tags LIKE ?" if q else " AND franchise_tags LIKE ?"
-        params.append(f"%{tag}%")
-        
+    if franchise:
+        query += " AND franchise_tags LIKE ?"
+        params.append(f"%{franchise}%")
+
     # Apply Sorting
     if sort == "cheapest":
-        query += " ORDER BY p.current_price ASC" if q else " ORDER BY current_price ASC"
+        query += " ORDER BY current_price ASC"
     elif sort == "highest":
-        query += " ORDER BY p.current_price DESC" if q else " ORDER BY current_price DESC"
+        query += " ORDER BY current_price DESC"
     elif sort == "discount":
-        # Orders highest-percentage discounts first (only evaluates items where original_price exists and exceeds selling price)
         query += """
-            ORDER BY CASE WHEN p.original_price IS NOT NULL AND p.original_price > p.current_price 
-            THEN ((p.original_price - p.current_price) / p.original_price) ELSE 0 END DESC
-        """ if q else """
             ORDER BY CASE WHEN original_price IS NOT NULL AND original_price > current_price 
             THEN ((original_price - current_price) / original_price) ELSE 0 END DESC
         """
     else:  # newest
-        query += " ORDER BY p.updated_at DESC" if q else " ORDER BY updated_at DESC"
-        
-    # Apply Pagination
-    query += " LIMIT ? OFFSET ?"
-    params.extend([limit, offset])
-    
+        query += " ORDER BY updated_at DESC"
+
     cursor.execute(query, tuple(params))
     rows = cursor.fetchall()
     conn.close()
-    
+
     products = []
     for row in rows:
         products.append({
@@ -174,104 +141,198 @@ def get_products(
             "image_url": row["image_url"],
             "brand_name": row["brand_name"],
             "category": row["category"],
-            "franchise_tags": json.loads(row["franchise_tags"]),  # Deserialize JSON string
+            "franchise_tags": json.loads(row["franchise_tags"]),
             "updated_at": row["updated_at"]
         })
-        
-    return {
-        "count": len(products),
-        "limit": limit,
-        "offset": offset,
-        "results": products
-    }
+
+    return templates.TemplateResponse(
+        request=request,
+        name="index.html",
+        context={
+            "products": products,
+            "brand_stats": brand_stats,
+            "popular_franchises": popular_franchises,
+            "current_brand": brand,
+            "current_category": category,
+            "current_franchise": franchise,
+            "current_sort": sort
+        }
+    )
 
 
-@app.get("/products/price-history")
-def get_price_history(store_url: str):
-    """Returns the full chronological price tracking timeline for a specific item url."""
+@app.get("/franchises/{franchise_slug}")
+def franchise_landing_ssr(request: Request, franchise_slug: str, sort: Optional[str] = Query("newest")):
+    """URL Canonical Route targeting dedicated franchises like /franchises/halo or /franchises/fallout."""
+    # Deduce slug to tag format: "final-fantasy" -> "final fantasy" but also check database mapping matches
+    cleaned_slug = franchise_slug.replace("-", " ").strip()
+    
     conn = get_db_connection()
+    brand_stats, popular_franchises = fetch_common_stats(conn)
     cursor = conn.cursor()
+
+    # Search for products with matching slug
     cursor.execute("""
-        SELECT price, recorded_at 
-        FROM price_history 
-        WHERE store_url = ? 
-        ORDER BY recorded_at ASC
-    """, (store_url,))
+        SELECT * FROM products 
+        WHERE is_active = 1 AND LOWER(franchise_tags) LIKE ?
+    """, (f"%{cleaned_slug}%",))
     rows = cursor.fetchall()
     conn.close()
+
+    # Fallback to absolute closest title matches if mapping is unindexed
+    matched_title = cleaned_slug.title()
+    if rows:
+        try:
+            matched_title = next(
+                tag for row in rows for tag in json.loads(row["franchise_tags"]) 
+                if tag.lower().strip() == cleaned_slug
+            )
+        except Exception:
+            pass
+
+    products = []
+    for row in rows:
+        products.append({
+            "store_url": row["store_url"],
+            "product_name": row["product_name"],
+            "current_price": row["current_price"],
+            "original_price": row["original_price"],
+            "image_url": row["image_url"],
+            "brand_name": row["brand_name"],
+            "category": row["category"],
+            "franchise_tags": json.loads(row["franchise_tags"]),
+            "updated_at": row["updated_at"]
+        })
+
+    return templates.TemplateResponse(
+        request=request,
+        name="index.html",
+        context={
+            "products": products,
+            "brand_stats": brand_stats,
+            "popular_franchises": popular_franchises,
+            "current_brand": None,
+            "current_category": None,
+            "current_franchise": matched_title,
+            "current_sort": sort
+        }
+    )
+
+
+@app.get("/brands/{brand_slug}")
+def brand_landing_ssr(request: Request, brand_slug: str, sort: Optional[str] = Query("newest")):
+    """URL Canonical Route targeting vendor profiles like /brands/bethesda or /brands/blizzard."""
+    conn = get_db_connection()
+    brand_stats, popular_franchises = fetch_common_stats(conn)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT * FROM products 
+        WHERE is_active = 1 AND LOWER(brand_name) = ?
+    """, (brand_slug.strip().lower(),))
+    rows = cursor.fetchall()
+    conn.close()
+
+    # Track real brand title
+    matched_brand = brand_slug.title()
+    if rows:
+        matched_brand = rows[0]["brand_name"]
+
+    products = []
+    for row in rows:
+        products.append({
+            "store_url": row["store_url"],
+            "product_name": row["product_name"],
+            "current_price": row["current_price"],
+            "original_price": row["original_price"],
+            "image_url": row["image_url"],
+            "brand_name": row["brand_name"],
+            "category": row["category"],
+            "franchise_tags": json.loads(row["franchise_tags"]),
+            "updated_at": row["updated_at"]
+        })
+
+    return templates.TemplateResponse(
+        request=request,
+        name="index.html",
+        context={
+            "products": products,
+            "brand_stats": brand_stats,
+            "popular_franchises": popular_franchises,
+            "current_brand": matched_brand,
+            "current_category": None,
+            "current_franchise": None,
+            "current_sort": sort
+        }
+    )
+
+
+# ==========================================
+# DYNAMIC SITEMAP ENGINE (THE SEO SECRET WEAPON)
+# ==========================================
+
+@app.get("/sitemap.xml")
+def generate_sitemap():
+    """Generates an XML sitemap of every active listing and landing path."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
     
-    return [
-        {"price": row["price"], "recorded_at": row["recorded_at"]}
-        for row in rows
+    # 1. Fetch active deep-links
+    cursor.execute("SELECT store_url, updated_at FROM products WHERE is_active = 1")
+    products = cursor.fetchall()
+    
+    # 2. Fetch distinct brands
+    cursor.execute("SELECT DISTINCT brand_name FROM products WHERE is_active = 1")
+    brands = [row[0] for row in cursor.fetchall()]
+    
+    # 3. Fetch popular franchises
+    cursor.execute("SELECT DISTINCT franchise_tags FROM products WHERE is_active = 1")
+    franchises = set()
+    for row in cursor.fetchall():
+        try:
+            for tag in json.loads(row[0]):
+                if tag:
+                    franchises.add(tag)
+        except Exception:
+            continue
+            
+    conn.close()
+
+    # Format Sitemap markup elements
+    base_domain = "https://ggapparel.net" # Change to active domain name
+    sitemap_entries = [
+        f"""<url>
+            <loc>{base_domain}/</loc>
+            <changefreq>daily</changefreq>
+            <priority>1.0</priority>
+        </url>"""
     ]
 
+    # Append brand profiles
+    for brand in brands:
+        brand_slug = brand.lower().replace(" ", "-").strip()
+        sitemap_entries.append(
+            f"""<url>
+                <loc>{base_domain}/brands/{brand_slug}</loc>
+                <changefreq>weekly</changefreq>
+                <priority>0.8</priority>
+            </url>"""
+        )
 
-@app.get("/franchises")
-def get_franchises():
-    """Returns a unique list of all franchise tags stored in the database."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT franchise_tags FROM products WHERE is_active = 1")
-    rows = cursor.fetchall()
-    conn.close()
-    
-    unique_tags = set()
-    for row in rows:
-        tags = json.loads(row[0])
-        for tag in tags:
-            if tag:
-                unique_tags.add(tag)
-                
-    return sorted(list(unique_tags))
+    # Append franchise tags
+    for franchise in franchises:
+        slug = franchise.lower().replace(" ", "-").strip()
+        sitemap_entries.append(
+            f"""<url>
+                <loc>{base_domain}/franchises/{slug}</loc>
+                <changefreq>weekly</changefreq>
+                <priority>0.8</priority>
+            </url>"""
+        )
 
+    # Assemble wrapper sitemap response
+    xml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+{"".join(sitemap_entries)}
+</urlset>"""
 
-# ==========================================
-# ADMINISTRATIVE METADATA MANAGEMENT (DYNAMIC TAXONOMY)
-# ==========================================
-
-class TaxonomyMappingRequest(BaseModel):
-    keyword: str
-    franchise_name: str
-
-
-@app.post("/admin/mappings")
-def add_new_franchise_mapping(payload: TaxonomyMappingRequest):
-    """Creates or replaces a dynamic keyword-to-franchise map on the database level."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-            INSERT OR REPLACE INTO franchise_mappings (keyword, franchise_name)
-            VALUES (?, ?)
-        """, (payload.keyword.lower().strip(), payload.franchise_name.strip()))
-        conn.commit()
-        return {"status": "success", "message": f"Mapped '{payload.keyword.lower()}' to '{payload.franchise_name}'"}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-    finally:
-        conn.close()
-
-
-@app.get("/admin/unmapped")
-def get_unmapped_products():
-    """Identifies products currently fallback tagged with their vendor brand name."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT DISTINCT product_name, store_url, brand_name 
-        FROM products 
-        WHERE is_active = 1 
-          AND (
-            franchise_tags LIKE '%"' || brand_name || '"%' 
-            OR franchise_tags LIKE '%"Geek Apparel"%'
-            OR franchise_tags = '[]'
-          )
-    """)
-    rows = cursor.fetchall()
-    conn.close()
-    
-    results = [dict(row) for row in rows]
-    return {
-        "unmapped_count": len(results),
-        "results": results
-    }
+    return Response(content=xml_content, media_type="application/xml")

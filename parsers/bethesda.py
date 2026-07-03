@@ -9,9 +9,8 @@ class BethesdaParser(BaseParser):
     url_pattern = "https://gear.bethesda.net/collections/apparel?page={page_num}"
     first_page_override = "https://gear.bethesda.net/collections/apparel"
     
-    # THEME-AGNOSTIC SELECTOR: Target raw product links directly.
-    # Bypasses complex grid layout structures across changing storefront themes.
-    item_selector = "a[href*='/products/']"
+    # Target grid card wrappers directly
+    item_selector = "li.grid__item, .product-card, .card-wrapper"
     pagination_type = "paginated"
     max_pages = 50
 
@@ -20,15 +19,17 @@ class BethesdaParser(BaseParser):
         self._seen_urls = set()
 
     def parse_product(self, product_el: BeautifulSoup, base_url: str) -> tuple:
-        # 1. Extract Details and Deduplicate
-        raw_href = product_el.get('href', '')
+        # Find the primary product link inside this card container
+        link_el = product_el.select_one("a[href*='/products/']") or product_el.select_one("a")
+        if not link_el:
+            return "", 0.0, None, "", "", {}
+
+        raw_href = link_el.get('href', '')
         store_url = urljoin(base_url, raw_href) if raw_href else base_url
         
-        # Reset local cache state on first-page boundaries
         if "page=" not in base_url or "page=1" in base_url:
             self._seen_urls.clear()
 
-        # Filter out gift card variations or pagination parameters
         if (store_url == base_url or 
             store_url in self._seen_urls or 
             "gift-card" in store_url.lower() or 
@@ -37,89 +38,93 @@ class BethesdaParser(BaseParser):
         
         self._seen_urls.add(store_url)
 
-        # 2. Walk up to locate the main product card container
-        container = product_el.parent
-        for _ in range(4):
-            if container and container.name in ['div', 'li', 'section'] and (container.select_one("img") or container.select_one("[class*='price']")):
-                break
-            container = container.parent if container else None
-            
-        if not container:
-            container = product_el
-
-        # 3. Clean Product Name extraction
         product_name = ""
-        
-        # Look for explicit titles or headers
         name_el = (
-            container.select_one(".product-card__title")
-            or container.select_one(".card__heading")  # Standard for Shopify Dawn
-            or container.select_one(".title")
-            or container.select_one("[class*='title']")
+            product_el.select_one(".product-card__title")
+            or product_el.select_one(".card__heading")
+            or product_el.select_one(".title")
+            or product_el.select_one("[class*='title']")
         )
         if name_el:
             product_name = name_el.get_text(strip=True)
             
-        # Refined text-scanning fallback ignoring promotional words
         if not product_name:
-            raw_text = product_el.get_text(" ", strip=True)
+            raw_text = link_el.get_text(" ", strip=True)
             badge_texts = ["sale", "new", "sold out", "preorder", "exclusive"]
             words = [w for w in raw_text.split() if w.lower() not in badge_texts]
             product_name = " ".join(words)
             
-        # Final image tag alt-attribute fallback lookup
         if not product_name or product_name.lower().strip() in ["sale", "new", "sold out", "preorder"]:
-            img_el = container.select_one("img")
+            img_el = product_el.select_one("img")
             if img_el and img_el.has_attr("alt"):
                 product_name = img_el["alt"].strip()
 
-        # Exclude nodes matching overlay badges
         if not product_name or product_name.lower().strip() in ["sale", "new", "sold out", "preorder"]:
             return "", 0.0, None, "", "", {}
 
-        # Strip standard suffix labels
         if " - Bethesda Gear Store" in product_name:
             product_name = product_name.replace(" - Bethesda Gear Store", "").strip()
 
-        # 4. Extract Pricing
         current_price = 0.0
         original_price = None
 
-        # Look for Shopify price tags
         price_el = (
-            container.select_one(".price-item--sale")
-            or container.select_one(".price-item--regular")
-            or container.select_one(".price")
-            or container.select_one("[class*='price']")
+            product_el.select_one(".price-item--sale")
+            or product_el.select_one(".price-item--regular")
+            or product_el.select_one(".price")
+            or product_el.select_one("[class*='price']")
         )
         price_text = ""
         if price_el:
             price_text = price_el.get_text(strip=True)
             
         if not price_text:
-            for string in container.stripped_strings:
+            for string in product_el.stripped_strings:
                 if "$" in string or "£" in string or "€" in string:
                     price_text = string
                     break
 
         if price_text:
             original_price_el = (
-                container.select_one(".price-item--regular")
-                or container.select_one("del")
-                or container.select_one(".original-price")
+                product_el.select_one(".price-item--regular")
+                or product_el.select_one("del")
+                or product_el.select_one(".original-price")
             )
             if original_price_el:
                 original_price = self.clean_price(original_price_el.get_text(strip=True))
-                # Only clean the parsed text output if regular price is concatenated inside the active node
                 if price_el and original_price_el in price_el.children:
                     price_text = price_text.replace(original_price_el.get_text(strip=True), "")
             current_price = self.clean_price(price_text)
 
-        # 5. Extract Image Thumbnail (sanitizing CDN relative protocols)
-        img_el = container.select_one("img")
+        # RECURSIVE REGEX PRICE HARVESTER
+        if current_price == 0.0:
+            found_prices = re.findall(r'[\$\£\€]\s*\d+(?:\.\d{2})?', product_el.get_text(" "))
+            if found_prices:
+                prices = sorted(list(set(self.clean_price(p) for p in found_prices)))
+                if len(prices) == 1:
+                    current_price = prices[0]
+                elif len(prices) >= 2:
+                    current_price = prices[0]
+                    original_price = prices[-1]
+
+        # Extract Image Thumbnail (sanitizing responsive lazy-loads)
+        img_el = product_el.select_one("img")
         raw_image_url = ""
         if img_el:
-            raw_image_url = img_el.get("src") or img_el.get("data-src") or ""
+            lazy_candidates = [
+                img_el.get("data-srcset"),
+                img_el.get("data-src"),
+                img_el.get("srcset"),
+                img_el.get("src")
+            ]
+            for candidate in lazy_candidates:
+                if candidate and not candidate.strip().startswith("data:image"):
+                    raw_image_url = candidate
+                    break
+            
+            if "," in raw_image_url:
+                raw_image_url = raw_image_url.split(",")[0].strip().split(" ")[0]
+                
             if raw_image_url.startswith("//"):
                 raw_image_url = "https:" + raw_image_url
 

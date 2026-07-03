@@ -1,0 +1,80 @@
+<!-- templates/base.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Official Gaming Apparel Aggregator | Find Fallout, Halo & Zelda Shirts{% endblock %}</title>
+    
+    <!-- Meta Descriptions for SEO -->
+    <meta name="description" content="{% block meta_description %}Discover and compare high-quality official gaming t-shirts, hoodies, jackets, and apparel from Insert Coin, Fangamer, Xbox, Bethesda, and Blizzard. All in one place!{% endblock %}">
+    <meta name="robots" content="index, follow">
+    
+    <!-- Open Graph (Facebook, Discord, Twitter) -->
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="{% block og_title %}Official Gaming Apparel Aggregator{% endblock %}">
+    <meta property="og:description" content="{% block og_description %}Compare prices, browse sales, and track gaming wardrobe items from all your favorite developers and franchises securely.{% endblock %}">
+    <meta property="og:image" content="/static/images/og-featured.png">
+    
+    <!-- Tailwind CSS (Deliver extremely lightweight styles) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#111827',
+                        accent: '#F59E0B'
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Smooth, instant page load experience */
+        [x-cloak] { display: none !important; }
+    </style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen flex flex-col font-sans">
+
+    <!-- SEO Header Structure -->
+    <header class="border-b border-gray-800 bg-gray-900 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row justify-between items-center gap-4">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-amber-500 rounded-lg flex items-center justify-center font-bold text-gray-950 text-xl">
+                    🎮
+                </div>
+                <div>
+                    <a href="/" class="text-xl font-extrabold tracking-tight text-white hover:text-amber-500 transition-colors">
+                        GG<span class="text-amber-500">APPAREL</span>.net
+                    </a>
+                    <span class="block text-xs text-gray-400 font-medium tracking-wide">The Gaming Wardrobe Search Engine</span>
+                </div>
+            </div>
+            
+            <nav class="flex items-center gap-6 text-sm font-semibold text-gray-300">
+                <a href="/" class="hover:text-amber-500 transition-colors">All Clothing</a>
+                <a href="/?sort=discount" class="hover:text-amber-500 transition-colors text-amber-400">🔥 Sales & Discounts</a>
+                <a href="https://github.com" target="_blank" rel="noopener" class="hover:text-amber-500 transition-colors">About</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Semantic Schema footer -->
+    <footer class="border-t border-gray-900 bg-gray-950 py-12 mt-auto">
+        <div class="max-w-7xl mx-auto px-4 text-center">
+            <p class="text-sm text-gray-500">
+                &copy; 2026 GGApparel.net. We index licensed merch from Xbox, PlayStation, Nintendo, Bethesda, and indie game developers. 
+            </p>
+            <p class="text-xs text-gray-600 mt-2">
+                All product names, logos, logos and brands are property of their respective owners. Outbound affiliate links may earn us a small commission.
+            </p>
+        </div>
+    </footer>
+
+</body>
+</html>

@@ -1,124 +1,91 @@
 # parsers/eightysixed.py
-import re
-from urllib.parse import urljoin
-from bs4 import BeautifulSoup
 from parsers.base import BaseParser
 
+
 class EightysixedParser(BaseParser):
-    brand_name = "Eightysixed"
-    url_pattern = "https://www.eightysixed.com/collections/all?page={page_num}"
-    first_page_override = "https://www.eightysixed.com/collections/all"
-    
-    # THEME-AGNOSTIC SELECTOR: Target raw product links directly. 
-    # This bypasses all custom compiled Tailwind classes completely!
-    item_selector = "a[href*='/products/']"
-    pagination_type = "paginated"
-    max_pages = 100
 
-    def __init__(self):
-        super().__init__()
-        self._seen_urls = set()
+    @property
+    def brand_name(self) -> str:
+        return "Eightysixed"
 
-    def parse_product(self, product_el: BeautifulSoup, base_url: str) -> tuple:
-        # 1. Deduplicate matching anchors pointing to the same product
-        raw_href = product_el.get('href', '')
-        store_url = urljoin(base_url, raw_href) if raw_href else base_url
-        
-        # Reset crawler memory state on page 1 runs
-        if "page=" not in base_url or "page=1" in base_url:
-            self._seen_urls.clear()
+    @property
+    def url_pattern(self) -> str:
+        # Shopify's structured JSON product feed (bypasses JS-rendered HTML entirely)
+        return "https://www.eightysixed.com/collections/all/products.json?limit=250&page={page_num}"
 
-        # Reject standard gift card links and duplicate matches
-        if store_url == base_url or store_url in self._seen_urls or "gift-card" in store_url.lower():
-            return "", 0.0, None, "", "", {}
-        
-        self._seen_urls.add(store_url)
+    @property
+    def first_page_override(self) -> str:
+        return None
 
-        # 2. Walk up to locate the closest product card div wrapper
-        container = product_el.parent
-        for _ in range(4):
-            if container and container.name in ['div', 'li', 'section'] and (container.select_one("img") or container.select_one("[class*='price']")):
-                break
-            container = container.parent if container else None
-            
-        if not container:
-            container = product_el
+    @property
+    def item_selector(self) -> str:
+        return ""  # Unused in JSON mode
 
-        # 3. Extract Product Name cleanly, avoiding badge overlays
-        product_name = ""
-        
-        # Prioritize explicit title selectors first
-        name_el = (
-            container.select_one(".grid-product__title")
-            or container.select_one(".product-card__title")
-            or container.select_one(".product-item__title")
-        )
-        if name_el:
-            product_name = name_el.get_text(strip=True)
-            
-        # If no explicit class titles found, grab text content of the primary anchor link
-        if not product_name:
-            raw_text = product_el.get_text(" ", strip=True)
-            # Filter out badge elements nested inside the anchor text
-            badge_texts = ["sale", "new", "sold out", "preorder"]
-            words = [w for w in raw_text.split() if w.lower() not in badge_texts]
-            product_name = " ".join(words)
-            
-        # Last resort fallback: Thumbnail Alt
-        if not product_name or product_name.lower().strip() in ["sale", "new", "sold out", "preorder"]:
-            img_el = container.select_one("img")
-            if img_el and img_el.has_attr("alt"):
-                product_name = img_el["alt"].strip()
+    @property
+    def pagination_type(self) -> str:
+        return "shopify_json"
 
-        # Reject any residual dummy tags that slipped through name resolutions
-        if not product_name or product_name.lower().strip() in ["sale", "new", "sold out", "preorder"]:
+    @property
+    def max_pages(self) -> int:
+        return 10  # Stops automatically when the feed returns an empty product list
+
+    # Product types worth keeping (wearable apparel only)
+    _APPAREL_HINTS = [
+        "shirt", "tee", "hoodie", "sweater", "sweatshirt", "jacket", "hat",
+        "beanie", "cap", "sock", "short", "pant", "crewneck", "tank",
+        "long sleeve", "apparel", "jersey", "pullover"
+    ]
+
+    def parse_product(self, product, base_url: str) -> tuple:
+        # In JSON mode, 'product' is a dict from products.json (not a BeautifulSoup tag)
+        if not isinstance(product, dict):
             return "", 0.0, None, "", "", {}
 
-        # Clean brand suffixes
-        if " - Eightysixed" in product_name:
-            product_name = product_name.replace(" - Eightysixed", "").strip()
+        product_type = (product.get("product_type") or "").strip().lower()
+        title = (product.get("title") or "").strip()
+        handle = product.get("handle", "")
+        vendor = (product.get("vendor") or "").strip()
 
-        # 4. Extract Price
-        current_price = 0.0
+        # Keep only wearable apparel; reject stickers, pins, prints, accessories
+        if not any(hint in product_type for hint in self._APPAREL_HINTS):
+            return "", 0.0, None, "", "", {}
+
+        if not title or not handle:
+            return "", 0.0, None, "", "", {}
+
+        store_url = f"https://www.eightysixed.com/products/{handle}"
+
+        # Pricing from variants
+        prices = []
+        compare_prices = []
+        for variant in product.get("variants", []) or []:
+            try:
+                raw_price = variant.get("price")
+                if raw_price not in (None, ""):
+                    prices.append(float(raw_price))
+                raw_compare = variant.get("compare_at_price")
+                if raw_compare not in (None, ""):
+                    compare_prices.append(float(raw_compare))
+            except (TypeError, ValueError):
+                continue
+
+        if not prices:
+            return "", 0.0, None, "", "", {}
+
+        current_price = min(prices)
         original_price = None
+        if compare_prices:
+            highest_compare = max(compare_prices)
+            if highest_compare > current_price:
+                original_price = highest_compare
 
-        price_el = (
-            container.select_one(".grid-product__price")
-            or container.select_one(".price-item--sale") 
-            or container.select_one(".price") 
-            or container.select_one("[class*='price']")
-            or container.select_one("[class*='amount']")
-        )
-        price_text = ""
-        if price_el:
-            price_text = price_el.get_text(strip=True)
-            
-        if not price_text:
-            for string in container.stripped_strings:
-                if "$" in string or "£" in string or "€" in string:
-                    price_text = string
-                    break
+        # Thumbnail image
+        images = product.get("images", []) or []
+        image_url = "https://example.com/placeholder.jpg"
+        if images and images[0].get("src"):
+            image_url = images[0]["src"]
 
-        if price_text:
-            original_price_el = (
-                container.select_one(".grid-product__price--original") 
-                or container.select_one(".price-item--regular") 
-                or container.select_one("del")
-            )
-            if original_price_el:
-                original_price = self.clean_price(original_price_el.get_text(strip=True))
-                if original_price_el in price_el.children if price_el else False:
-                    price_text = price_text.replace(original_price_el.get_text(strip=True), "")
-            current_price = self.clean_price(price_text)
+        # 'vendor' is a clean, authoritative franchise signal (e.g. "Guilty Gear")
+        metadata = {"scraped_tag": vendor}
 
-        # 5. Extract Thumbnail Image
-        img_el = container.select_one("img")
-        raw_image_url = ""
-        if img_el:
-            raw_image_url = img_el.get("src") or img_el.get("data-src") or ""
-            if raw_image_url.startswith("//"):
-                raw_image_url = "https:" + raw_image_url
-
-        image_url = urljoin(base_url, raw_image_url) if raw_image_url else "https://example.com/placeholder.jpg"
-
-        return product_name, current_price, original_price, store_url, image_url, {}
+        return title, current_price, original_price, store_url, image_url, metadata

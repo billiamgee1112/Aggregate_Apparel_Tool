@@ -1,0 +1,158 @@
+<!-- templates/index.html -->
+{% extends "base.html" %}
+
+{% block title %}
+    {% if current_franchise %}{{ current_franchise }} Apparel & Merch | GGApparel{% else %}Official Gaming Apparel & Merchandise Finder | GGApparel{% endif %}
+{% endblock %}
+
+{% block meta_description %}
+    {% if current_franchise %}Compare and discover the best licensed {{ current_franchise }} tshirts, hoodies, jackets, and accessories.{% else %}Browse our catalog of gaming clothes curated from official sources across Bethesda, Xbox, Fangamer, Insert Coin, and more.{% endif %}
+{% endblock %}
+
+{% block content %}
+
+    <!-- Canonical Header / Title Category -->
+    <div class="text-center md:text-left mb-8 pb-6 border-b border-gray-800">
+        <h1 class="text-3xl md:text-4xl font-extrabold text-white tracking-tight">
+            {% if current_franchise %}
+                🎮 Official <span class="text-amber-500">{{ current_franchise }}</span> Apparel
+            {% elif current_brand %}
+                🛡️ <span class="text-amber-500">{{ current_brand }}</span> Apparel Collection
+            {% else %}
+                🎮 Aggregated <span class="text-amber-500">Gaming & Geek</span> Apparel
+            {% endif %}
+        </h1>
+        <p class="text-gray-400 mt-2 text-sm md:text-base">
+            Comparing prices and stocks across official developers and gaming retailers. Pre-screened for genuine garments.
+        </p>
+    </div>
+
+    <!-- Active Search Facets -->
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
+        
+        <!-- Sidebar Filters: Perfect for Crawler Crawling -->
+        <aside class="space-y-6">
+            <!-- Brand Links (High semantic power for SEO indexers!) -->
+            <div class="bg-gray-900 border border-gray-800 rounded-xl p-5">
+                <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Browse by Brand</h3>
+                <div class="flex flex-col gap-2">
+                    <a href="/" class="text-sm font-medium hover:text-amber-500 text-gray-300 {% if not current_brand %}text-amber-500 font-bold{% endif %}">All Brands</a>
+                    {% for brand, count in brand_stats.items() %}
+                        <a href="/brands/{{ brand | lower }}" class="text-sm font-medium flex justify-between items-center text-gray-300 hover:text-amber-500 transition-colors {% if current_brand | lower == brand | lower %}text-amber-500 font-bold{% endif %}">
+                            <span>{{ brand }}</span>
+                            <span class="text-xs bg-gray-800 text-gray-400 px-2.5 py-0.5 rounded-full font-bold">{{ count }}</span>
+                        </a>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Categories Links -->
+            <div class="bg-gray-900 border border-gray-800 rounded-xl p-5">
+                <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Shop Categories</h3>
+                <div class="flex flex-col gap-2">
+                    <a href="/" class="text-sm font-medium hover:text-amber-500 text-gray-300">All Categories</a>
+                    {% for cat in ["t-shirt", "hoodie", "jacket", "sweater", "pants"] %}
+                        <a href="/?category={{ cat }}" class="text-xs font-semibold uppercase text-gray-300 hover:text-amber-500 transition-colors {% if current_category == cat %}text-amber-500 font-bold{% endif %}">
+                            📁 {{ cat }}s
+                        </a>
+                    {% endfor %}
+                </div>
+            </div>
+            
+            <!-- Quick-links to major franchises -->
+            <div class="bg-gray-900 border border-gray-800 rounded-xl p-5">
+                <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Popular Franchises</h3>
+                <div class="flex flex-wrap gap-2">
+                    {% for item_tag in popular_franchises %}
+                        <a href="/franchises/{{ item_tag | lower | replace(' ', '-') }}" class="text-xs bg-gray-800 hover:bg-amber-500 hover:text-gray-950 transition-all font-semibold rounded px-2.5 py-1 text-gray-300">
+                            # {{ item_tag }}
+                        </a>
+                    {% endfor %}
+                </div>
+            </div>
+        </aside>
+
+        <!-- Product Grid Section -->
+        <section class="lg:col-span-3">
+            
+            <!-- Filter Sorting Options -->
+            <div class="flex flex-wrap justify-between items-center gap-4 bg-gray-900 border border-gray-800 p-4 rounded-xl mb-6">
+                <div class="text-xs font-bold text-gray-400">
+                    Showing <span class="text-white">{{ products|length }}</span> active garments
+                </div>
+                <div class="flex gap-4">
+                    <a href="?sort=newest" class="text-xs font-bold text-gray-300 hover:text-amber-400 {% if current_sort == 'newest' %}text-amber-500{% endif %}">Newest</a>
+                    <a href="?sort=cheapest" class="text-xs font-bold text-gray-300 hover:text-amber-400 {% if current_sort == 'cheapest' %}text-amber-500{% endif %}">Cheapest</a>
+                    <a href="?sort=discount" class="text-xs font-bold text-gray-300 hover:text-amber-400 {% if current_sort == 'discount' %}text-amber-500{% endif %}">🔥 Sales</a>
+                </div>
+            </div>
+
+            <!-- The Grid - Full Googlebot Crawlable Structured Product Content -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+                {% for product in products %}
+                    <article class="bg-gray-900 border border-gray-800 hover:border-amber-500 hover:scale-[1.01] transition-all duration-200 rounded-xl overflow-hidden flex flex-col" 
+                             itemscope itemtype="https://schema.org/Product">
+                        
+                        <!-- Rich Structured SEO Schema Meta -->
+                        <meta itemprop="name" content="{{ product.product_name }}">
+                        <meta itemprop="image" content="{{ product.image_url }}">
+                        <meta itemprop="description" content="Official {{ product.brand_name }} apparel item. Tagged with {{ product.franchise_tags | join(', ') }}.">
+                        <meta itemprop="brand" content="{{ product.brand_name }}">
+                        
+                        <!-- Product Thumbnail -->
+                        <div class="relative bg-gray-950 aspect-square overflow-hidden border-b border-gray-800">
+                            {% if product.original_price and product.original_price > product.current_price %}
+                                <div class="absolute top-3 left-3 bg-red-600 text-white font-black text-2xs uppercase px-2.5 py-1 rounded tracking-widest z-10 shadow-lg">
+                                    SAVE {{ (((product.original_price - product.current_price) / product.original_price) * 100) | int }}%
+                                </div>
+                            {% endif %}
+                            <img src="{{ product.image_url }}" alt="Official {{ product.product_name }} - {{ product.brand_name }}" class="w-full h-full object-cover transition-transform duration-300 hover:scale-105" loading="lazy">
+                        </div>
+
+                        <!-- Card Information Block -->
+                        <div class="p-4 flex-grow flex flex-col justify-between">
+                            <div class="space-y-1">
+                                <!-- Brand + Category Schema Subheaders -->
+                                <div class="flex justify-between items-center text-3xs font-extrabold tracking-wider uppercase mb-1">
+                                    <span class="text-amber-500">{{ product.brand_name }}</span>
+                                    <span class="text-gray-500">{{ product.category }}</span>
+                                </div>
+                                
+                                <h2 class="text-sm font-bold text-white leading-snug line-clamp-2 min-h-[2.5rem]">
+                                    {{ product.product_name }}
+                                </h2>
+                            </div>
+
+                            <!-- Structured Schema Offers (This makes pricing show up in Google Search layouts) -->
+                            <div class="mt-4 pt-3 border-t border-gray-850 flex items-center justify-between" itemprop="offers" itemscope itemtype="https://schema.org/Offer">
+                                <meta itemprop="priceCurrency" content="USD">
+                                <meta itemprop="price" content="{{ product.current_price }}">
+                                <meta itemprop="url" content="{{ product.store_url }}">
+                                <link itemprop="availability" href="https://schema.org/InStock">
+
+                                <div class="flex items-baseline gap-1.5">
+                                    <span class="text-base font-extrabold text-white">${{ "%.2f"|format(product.current_price) }}</span>
+                                    {% if product.original_price and product.original_price > product.current_price %}
+                                        <span class="text-xs text-gray-500 line-through">${{ "%.2f"|format(product.original_price) }}</span>
+                                    {% endif %}
+                                </div>
+
+                                <a href="{{ product.store_url }}" target="_blank" rel="noopener" class="text-3xs bg-amber-500 hover:bg-amber-600 text-gray-950 font-black tracking-widest uppercase px-3 py-2 rounded transition-colors shadow">
+                                    BUY OUTBOUND →
+                                </a>
+                            </div>
+                        </div>
+                    </article>
+                {% endfor %}
+            </div>
+            
+            {% if products|length == 0 %}
+                <div class="bg-gray-900 border border-gray-800 rounded-xl p-12 text-center">
+                    <p class="text-gray-400">No active products found matching your search. Try adjusting your sidebar filters.</p>
+                </div>
+            {% endif %}
+
+        </section>
+    </div>
+
+{% endblock %}

@@ -172,15 +172,12 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
     page.set_default_navigation_timeout(60000)
     page.set_default_timeout(30000)
     
-    # Block heavy rendering loads dynamically
+    # Block genuinely heavy rendering loads dynamically without obstructing layouts
     async def block_resources(route):
-        # STABILITY KEYPOINT: If this is an infinite scroll parser or Eightysixed,
-        # we MUST allow images and stylesheets to download normally so dynamic
-        # intersection detectors and Shopify security layouters can run!
-        if parser.pagination_type == "infinite_scroll" or parser.brand_name == "Eightysixed":
-            blocked_types = ["media", "font"]
-        else:
-            blocked_types = ["image", "media", "font", "stylesheet"]
+        # STABILITY KEYPOINT: We must allow stylesheets and images to load
+        # so responsive layout structures and dynamic HTML hydration engines execute
+        # and don't yield blank placeholder values.
+        blocked_types = ["media", "font"]
             
         if route.request.resource_type in blocked_types:
             await route.abort()
@@ -194,6 +191,7 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
     print(f"[{brand_name}] Task Started: Opened secure, isolated context with User-Agent: {user_agent}")
 
     try:
+        # CRITICAL FIX: Base routing purely on verified pagination types
         if parser.pagination_type == "infinite_scroll":
             target_url = parser.url_pattern
             print(f"[{brand_name}] Opening target landing URL: {target_url}...")
@@ -210,7 +208,9 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
                 for product_el in product_elements:
                     try:
                         name, price, orig_price, s_url, img_url, metadata = parser.parse_product(product_el, target_url)
-                        if not name:
+                        
+                        # Guard against unpopulated partial link anchors, placeholders, or $0 prices
+                        if not name or price == 0.0 or not img_url or "placeholder" in img_url or "data:image" in img_url:
                             continue
                         
                         text_to_check = f"{name} {s_url}".lower()
@@ -270,6 +270,20 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
                     if response and response.status == 404:
                         print(f"[{brand_name}] Reached last page (Status 404) at page {page_num}.")
                         break
+
+                    # SCROLL THE PAGINATED PAGE TO FORCE LAZY HYDRATION
+                    print(f"[{brand_name}] Hydrating page widgets via scroll actions...")
+                    await page.evaluate("""
+                        (async () => {
+                            window.scrollBy(0, 800);
+                            await new Promise(r => setTimeout(r, 200));
+                            window.scrollBy(0, 1200);
+                            await new Promise(r => setTimeout(r, 200));
+                            window.scrollTo(0, document.body.scrollHeight);
+                            await new Promise(r => setTimeout(r, 300));
+                        })();
+                    """)
+                    await page.wait_for_timeout(500)
                         
                     page_content = await page.content()
                     soup = BeautifulSoup(page_content, "html.parser")
@@ -294,7 +308,9 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
                     for product_el in product_elements:
                         try:
                             name, price, orig_price, s_url, img_url, metadata = parser.parse_product(product_el, target_url)
-                            if not name:
+                            
+                            # Guard against unpopulated partial link anchors, placeholders, or $0 prices
+                            if not name or price == 0.0 or not img_url or "placeholder" in img_url or "data:image" in img_url:
                                 continue
                             
                             text_to_check = f"{name} {s_url}".lower()
@@ -348,6 +364,67 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
                         break
                     continue
 
+        elif parser.pagination_type == "shopify_json":
+            import json
+            for page_num in range(1, parser.max_pages + 1):
+                target_url = parser.url_pattern.format(page_num=page_num)
+                print(f"[{brand_name}] Fetching JSON feed page {page_num}: {target_url}")
+
+                think_time = random.uniform(1000, 2500)
+                await page.wait_for_timeout(think_time)
+
+                try:
+                    response = await page.goto(target_url, wait_until="domcontentloaded")
+
+                    if response and response.status == 404:
+                        print(f"[{brand_name}] Reached last page (404) at page {page_num}.")
+                        break
+
+                    raw_text = await response.text()
+                    data = json.loads(raw_text)
+                    products = data.get("products", [])
+
+                    if not products:
+                        print(f"[{brand_name}] Feed empty at page {page_num}. Reached end of catalog.")
+                        break
+
+                    print(f"[{brand_name}] Found {len(products)} raw products on JSON page {page_num}.")
+
+                    for product in products:
+                        try:
+                            name, price, orig_price, s_url, img_url, metadata = parser.parse_product(product, target_url)
+
+                            # The parser already filters apparel via product_type, so no keyword gate here
+                            if not name or price == 0.0 or not img_url or "placeholder" in img_url or "data:image" in img_url:
+                                continue
+
+                            scraped_tag = metadata.get("scraped_tag", "") if isinstance(metadata, dict) else ""
+                            franchise_tag = parser.extract_franchise_tag(
+                                str(s_url),
+                                product_name=name,
+                                scraped_tag=scraped_tag,
+                                fallback=brand_name
+                            )
+
+                            item = GamingClothingItem(
+                                product_name=name,
+                                current_price=price,
+                                original_price=orig_price,
+                                store_url=s_url,
+                                image_url=img_url,
+                                brand_name=brand_name,
+                                franchise_tags=[franchise_tag],
+                                category=parser.deduce_category(name, str(s_url))
+                            )
+                            scraped_items.append(item)
+                        except Exception:
+                            continue
+
+                except Exception as e:
+                    print(f"[{brand_name}] JSON fetch warning on page {page_num}: {e}")
+                    if page_num == 1:
+                        break
+                    continue
     finally:
         await page.close()
         await context.close()
