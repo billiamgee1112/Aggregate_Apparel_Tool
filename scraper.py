@@ -174,9 +174,10 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
     
     # Block heavy rendering loads dynamically
     async def block_resources(route):
-        # STABILITY KEYPOINT: If this is an infinite scroll parser, we MUST allow images 
-        # and stylesheets to download normally so dynamic intersection detectors can trigger!
-        if parser.pagination_type == "infinite_scroll":
+        # STABILITY KEYPOINT: If this is an infinite scroll parser or Eightysixed,
+        # we MUST allow images and stylesheets to download normally so dynamic
+        # intersection detectors and Shopify security layouters can run!
+        if parser.pagination_type == "infinite_scroll" or parser.brand_name == "Eightysixed":
             blocked_types = ["media", "font"]
         else:
             blocked_types = ["image", "media", "font", "stylesheet"]
@@ -275,11 +276,21 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
                     product_elements = soup.select(parser.item_selector)
                     
                     if not product_elements:
-                        print(f"[{brand_name}] No products found on page {page_num}. Stopping pagination.")
+                        page_title = soup.title.get_text(strip=True) if soup.title else "No Title"
+                        print(f"[{brand_name}] Selector '{parser.item_selector}' returned 0 products on Page {page_num}.")
+                        print(f"[{brand_name}] Page Info -> Title: '{page_title}' | Current URL: {page.url}")
+                        
+                        # Scan for products strings inside standard hyperlinks to identify selector deviations
+                        debug_links = [a['href'] for a in soup.select("a[href]") if "/products/" in a['href']][:3]
+                        if debug_links:
+                            print(f"[{brand_name}] Debug Match: Hyperlinks containing '/products/' exist on template but selector missed! Samples: {debug_links}")
                         break
                         
                     print(f"[{brand_name}] Found {len(product_elements)} items on Page {page_num}.")
                     
+                    # Track starting count before adding page items
+                    start_items_count = len(scraped_items)
+
                     for product_el in product_elements:
                         try:
                             name, price, orig_price, s_url, img_url, metadata = parser.parse_product(product_el, target_url)
@@ -322,6 +333,14 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
                             scraped_items.append(item)
                         except Exception:
                             continue
+                    
+                    # LOOP BREAK SECURITY POINT:
+                    # If this page yielded exactly 0 brand new valid apparel items, 
+                    # we have exhausted the page limits or reached the end of the collection!
+                    new_items_added = len(scraped_items) - start_items_count
+                    if page_num > 1 and new_items_added == 0:
+                        print(f"[{brand_name}] Page {page_num} yielded 0 new unique apparel items. Reached end of catalog!")
+                        break
                         
                 except Exception as e:
                     print(f"[{brand_name}] Warning/Timeout on page {page_num}: {e}")
@@ -341,8 +360,6 @@ async def scrape_store():
     all_scraped_items = []
 
     async with async_playwright() as p:
-        # STEP UP STEAL: Launch Playwright with headless=False on desktop 
-        # to ensure Cloudflare does not block dynamic client AJAX calls of lazy loaders!
         browser = await p.chromium.launch(
             headless=True,
             args=[

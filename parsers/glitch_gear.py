@@ -13,7 +13,7 @@ class GlitchGearParser(BaseParser):
     # Matches standard Shopify grid element cards (.grid__item, .product-item, .product-card)
     item_selector = "li.grid__item, .product-item, .product-card, [class*='product-grid'] .grid-item"
     pagination_type = "paginated"
-    max_pages = 10
+    max_pages = 100
 
     def parse_product(self, product: BeautifulSoup, base_url: str) -> tuple:
         # 1. Store Details Urllink
