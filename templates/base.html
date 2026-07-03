@@ -8,13 +8,16 @@
     
     <!-- Meta Descriptions for SEO -->
     <meta name="description" content="{% block meta_description %}Discover and compare high-quality official gaming t-shirts, hoodies, jackets, and apparel from Insert Coin, Fangamer, Xbox, Bethesda, and Blizzard. All in one place!{% endblock %}">
-    <meta name="robots" content="index, follow">
+    <meta name="robots" content="{% block robots %}index, follow{% endblock %}">
+
+    <!-- Canonical URL: consolidates sort/filter duplicates onto one clean per-page URL -->
+    <link rel="canonical" href="{% block canonical %}{{ base_domain | default('https://ggapparel.net') }}{% endblock %}">
     
     <!-- Open Graph (Facebook, Discord, Twitter) -->
     <meta property="og:type" content="website">
     <meta property="og:title" content="{% block og_title %}Official Gaming Apparel Aggregator{% endblock %}">
     <meta property="og:description" content="{% block og_description %}Compare prices, browse sales, and track gaming wardrobe items from all your favorite developers and franchises securely.{% endblock %}">
-    <meta property="og:image" content="/static/images/og-featured.png">
+    <meta property="og:image" content="{{ base_domain | default('https://ggapparel.net') }}/static/images/og-featured.png">
     
     <!-- Tailwind CSS (Deliver extremely lightweight styles) -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -51,12 +54,27 @@
                     <span class="block text-xs text-gray-400 font-medium tracking-wide">The Gaming Wardrobe Search Engine</span>
                 </div>
             </div>
-            
-            <nav class="flex items-center gap-6 text-sm font-semibold text-gray-300">
-                <a href="/" class="hover:text-amber-500 transition-colors">All Clothing</a>
-                <a href="/?sort=discount" class="hover:text-amber-500 transition-colors text-amber-400">🔥 Sales & Discounts</a>
-                <a href="https://github.com" target="_blank" rel="noopener" class="hover:text-amber-500 transition-colors">About</a>
-            </nav>
+
+            <div class="flex flex-col sm:flex-row items-center gap-4">
+                <!-- Franchise / Product Search -->
+                <form action="/search" method="get" role="search" class="relative">
+                    <input
+                        type="search"
+                        name="q"
+                        value="{{ current_query | default('') }}"
+                        placeholder="Search franchise… e.g. Sonic, Mass Effect"
+                        aria-label="Search gaming apparel by franchise or product"
+                        class="w-64 bg-gray-950 border border-gray-800 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 outline-none rounded-lg pl-9 pr-3 py-2 text-sm text-gray-200 placeholder-gray-500 transition-colors"
+                    >
+                    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">🔎</span>
+                </form>
+
+                <nav class="flex items-center gap-6 text-sm font-semibold text-gray-300">
+                    <a href="/" class="hover:text-amber-500 transition-colors">All Clothing</a>
+                    <a href="/?sort=discount" class="hover:text-amber-500 transition-colors text-amber-400">🔥 Sales & Discounts</a>
+                    <a href="https://github.com" target="_blank" rel="noopener" class="hover:text-amber-500 transition-colors">About</a>
+                </nav>
+            </div>
         </div>
     </header>
 

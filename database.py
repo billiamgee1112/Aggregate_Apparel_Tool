@@ -140,6 +140,7 @@ DEFAULT_RULESET = [
     ("destiny", "Destiny"),
     ("minecraft", "Minecraft"),
     ("hollow-knight", "Hollow Knight"),
+    ("hollow knight", "Hollow Knight"),
     ("nier", "NieR:Automata"),
     ("2b", "NieR:Automata"),
     ("genshin", "Genshin Impact"),
@@ -147,7 +148,31 @@ DEFAULT_RULESET = [
     ("street-fighter", "Street Fighter"),
     ("chun-li", "Street Fighter"),
     ("mega-man", "Mega Man"),
-    ("borderlands", "Borderlands")
+    ("borderlands", "Borderlands"),
+
+    # ----- Glitch Gear core catalog (Valve + popular indies) -----
+    ("portal", "Portal"),
+    ("aperture", "Portal"),
+    ("glados", "Portal"),
+    ("half-life", "Half-Life"),
+    ("half life", "Half-Life"),
+    ("gordon freeman", "Half-Life"),
+    ("team fortress", "Team Fortress 2"),
+    ("tf2", "Team Fortress 2"),
+    ("counter-strike", "Counter-Strike"),
+    ("counter strike", "Counter-Strike"),
+    ("left 4 dead", "Left 4 Dead"),
+    ("dota", "Dota 2"),
+    ("undertale", "Undertale"),
+    ("deltarune", "Deltarune"),
+    ("celeste", "Celeste"),
+    ("cuphead", "Cuphead"),
+    ("shovel knight", "Shovel Knight"),
+    ("stardew", "Stardew Valley"),
+    ("stardew valley", "Stardew Valley"),
+    ("hades", "Hades"),
+    ("among us", "Among Us"),
+    ("fall guys", "Fall Guys"),
 ]
 
 def init_db():
@@ -162,14 +187,11 @@ def init_db():
         )
     """)
     
-    # Seed static ruleset default rows cleanly if list is empty
-    cursor.execute("SELECT COUNT(*) FROM franchise_mappings")
-    if cursor.fetchone()[0] == 0:
-        cursor.executemany(
-            "INSERT OR IGNORE INTO franchise_mappings (keyword, franchise_name) VALUES (?, ?)", 
-            [(rule[0].lower().strip(), rule[1]) for rule in DEFAULT_RULESET]
-        )
-        print(f"Seeded {len(DEFAULT_RULESET)} baseline franchise mappings.")
+    # Seed / top-up static ruleset (idempotent: adds any new default rules each run)
+    cursor.executemany(
+        "INSERT OR IGNORE INTO franchise_mappings (keyword, franchise_name) VALUES (?, ?)", 
+        [(rule[0].lower().strip(), rule[1]) for rule in DEFAULT_RULESET]
+    )
     
     # 1. Primary Relational Table with category and active states
     cursor.execute("""
@@ -280,6 +302,8 @@ def save_products_to_db(products: list[GamingClothingItem]):
                 current_price=excluded.current_price,
                 original_price=excluded.original_price,
                 image_url=excluded.image_url,
+                brand_name=excluded.brand_name,
+                franchise_tags=excluded.franchise_tags,
                 category=excluded.category,
                 is_active=1,
                 updated_at=CURRENT_TIMESTAMP

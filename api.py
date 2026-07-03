@@ -11,6 +11,9 @@ from pydantic import BaseModel
 from apscheduler.schedulers.background import BackgroundScheduler
 from scraper import scrape_store
 import asyncio
+from urllib.parse import urlencode
+from math import ceil
+import re
 
 app = FastAPI(
     title="Geek Apparel Aggregator API",
@@ -28,6 +31,54 @@ app.add_middleware(
 )
 
 DB_NAME = "apparel_aggregator.db"
+
+BASE_DOMAIN = "https://ggapparel.net"  # Single source of truth for the domain (canonicals, sitemap, OG tags)
+PAGE_SIZE = 24  # Products per page
+
+def build_pagination(path: str, filters: dict, sort: str, page: int, total_count: int) -> dict:
+    """Computes pagination state, link bases, and a canonical URL for SEO."""
+    total_pages = max(1, ceil(total_count / PAGE_SIZE))
+    page = max(1, min(page, total_pages))
+
+    active_filters = {k: v for k, v in filters.items() if v}
+
+    # Base for pagination links (keeps filters + sort, drops page)
+    pag_params = dict(active_filters)
+    if sort:
+        pag_params["sort"] = sort
+    pag_qs = urlencode(pag_params)
+    base_url = f"{path}?{pag_qs}&" if pag_qs else f"{path}?"
+
+    # Base for sort links (keeps filters, drops sort + page)
+    sort_qs = urlencode(active_filters)
+    sort_base_url = f"{path}?{sort_qs}&" if sort_qs else f"{path}?"
+
+    # Canonical URL: content-defining filters + page, but NOT sort (dedupes sort variants)
+    canon_params = dict(active_filters)
+    if page > 1:
+        canon_params["page"] = page
+    canon_qs = urlencode(canon_params)
+    canonical = f"{BASE_DOMAIN}{path}?{canon_qs}" if canon_qs else f"{BASE_DOMAIN}{path}"
+
+    window = 2
+    start = max(1, page - window)
+    end = min(total_pages, page + window)
+
+    return {
+        "current_page": page,
+        "total_pages": total_pages,
+        "total_count": total_count,
+        "has_prev": page > 1,
+        "has_next": page < total_pages,
+        "prev_page": page - 1,
+        "next_page": page + 1,
+        "page_range": list(range(start, end + 1)),
+        "base_url": base_url,
+        "sort_base_url": sort_base_url,
+        "canonical": canonical,
+        "start_index": (page - 1) * PAGE_SIZE + 1 if total_count else 0,
+        "end_index": min(page * PAGE_SIZE, total_count),
+    }
 
 # Find templates relative to the current file
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -56,6 +107,72 @@ def fetch_common_stats(conn):
             continue
     popular_franchises = sorted(list(unique_tags))[:18] # Top 18 index mappings
     return brand_stats, popular_franchises
+
+def _build_fts_query(raw: str) -> str:
+    """Sanitizes user input into a safe FTS5 prefix-match query (AND semantics)."""
+    # Strip FTS operators/punctuation, keep alphanumerics + spaces
+    cleaned = re.sub(r"[^0-9A-Za-z\s]", " ", raw or "")
+    tokens = [t for t in cleaned.split() if t]
+    if not tokens:
+        return ""
+    # Prefix-match each token so "mass eff" still finds "Mass Effect"
+    return " ".join(f"{t}*" for t in tokens)
+
+def _match_franchises(conn, raw: str) -> set:
+    """Finds canonical franchise names implied by a search query via the mappings table."""
+    q = (raw or "").lower()
+    matched = set()
+    for keyword, name in conn.execute("SELECT keyword, franchise_name FROM franchise_mappings"):
+        k = (keyword or "").lower().strip().strip("-")
+        if not k:
+            continue
+        if re.search(rf"\b{re.escape(k)}\b", q) or name.lower() in q:
+            matched.add(name)
+    return matched
+
+def _build_search_query(conn, raw: str) -> str:
+    """Combines literal prefix matching with franchise-alias expansion (OR).
+
+    Example: 'bonfire' -> 'bonfire* OR "Dark Souls"' so lore/alias searches
+    surface correctly-tagged products even when the alias isn't in the product.
+    """
+    clauses = []
+    base = _build_fts_query(raw)
+    if base:
+        clauses.append(base)
+    for name in _match_franchises(conn, raw):
+        clauses.append('"' + name.replace('"', '') + '"')
+    return " OR ".join(clauses)
+
+def _order_clause(sort: str) -> str:
+    """Maps a sort keyword to an ORDER BY clause."""
+    if sort == "cheapest":
+        return " ORDER BY current_price ASC"
+    elif sort == "highest":
+        return " ORDER BY current_price DESC"
+    elif sort == "discount":
+        return """
+            ORDER BY CASE WHEN original_price IS NOT NULL AND original_price > current_price 
+            THEN ((original_price - current_price) / original_price) ELSE 0 END DESC
+        """
+    return " ORDER BY updated_at DESC"  # newest
+
+def _rows_to_products(rows) -> list:
+    """Serializes DB rows into template-friendly product dicts."""
+    products = []
+    for row in rows:
+        products.append({
+            "store_url": row["store_url"],
+            "product_name": row["product_name"],
+            "current_price": row["current_price"],
+            "original_price": row["original_price"],
+            "image_url": row["image_url"],
+            "brand_name": row["brand_name"],
+            "category": row["category"],
+            "franchise_tags": json.loads(row["franchise_tags"]),
+            "updated_at": row["updated_at"]
+        })
+    return products
 
 # ==========================================
 # BACKGROUND SCHEDULER CONFIGURATION
@@ -93,175 +210,215 @@ def home_index(
     category: Optional[str] = Query(None),
     sort: Optional[str] = Query("newest"),
     brand: Optional[str] = Query(None),
-    franchise: Optional[str] = Query(None)
+    franchise: Optional[str] = Query(None),
+    page: int = Query(1)
 ):
     """Prerenders crawler-friendly full-markup grid using Jinja2 templates."""
     conn = get_db_connection()
     brand_stats, popular_franchises = fetch_common_stats(conn)
     cursor = conn.cursor()
 
-    # Query with filter attributes
+    # Build shared WHERE clause
     params = []
-    query = "SELECT * FROM products WHERE is_active = 1"
-
+    where = " WHERE is_active = 1"
     if brand:
-        query += " AND LOWER(brand_name) = ?"
+        where += " AND LOWER(brand_name) = ?"
         params.append(brand.lower())
     if category:
-        query += " AND LOWER(category) = ?"
+        where += " AND LOWER(category) = ?"
         params.append(category.lower())
     if franchise:
-        query += " AND franchise_tags LIKE ?"
+        where += " AND franchise_tags LIKE ?"
         params.append(f"%{franchise}%")
 
-    # Apply Sorting
-    if sort == "cheapest":
-        query += " ORDER BY current_price ASC"
-    elif sort == "highest":
-        query += " ORDER BY current_price DESC"
-    elif sort == "discount":
-        query += """
-            ORDER BY CASE WHEN original_price IS NOT NULL AND original_price > current_price 
-            THEN ((original_price - current_price) / original_price) ELSE 0 END DESC
-        """
-    else:  # newest
-        query += " ORDER BY updated_at DESC"
+    # Total count for pagination
+    total_count = cursor.execute("SELECT COUNT(*) FROM products" + where, tuple(params)).fetchone()[0]
 
-    cursor.execute(query, tuple(params))
+    pagination = build_pagination(
+        "/",
+        {"category": category, "brand": brand, "franchise": franchise},
+        sort, page, total_count
+    )
+    offset = (pagination["current_page"] - 1) * PAGE_SIZE
+
+    cursor.execute(
+        "SELECT * FROM products" + where + _order_clause(sort) + " LIMIT ? OFFSET ?",
+        tuple(params) + (PAGE_SIZE, offset)
+    )
     rows = cursor.fetchall()
     conn.close()
 
-    products = []
-    for row in rows:
-        products.append({
-            "store_url": row["store_url"],
-            "product_name": row["product_name"],
-            "current_price": row["current_price"],
-            "original_price": row["original_price"],
-            "image_url": row["image_url"],
-            "brand_name": row["brand_name"],
-            "category": row["category"],
-            "franchise_tags": json.loads(row["franchise_tags"]),
-            "updated_at": row["updated_at"]
-        })
+    products = _rows_to_products(rows)
 
     return templates.TemplateResponse(
         request=request,
         name="index.html",
         context={
+            "base_domain": BASE_DOMAIN,
             "products": products,
             "brand_stats": brand_stats,
             "popular_franchises": popular_franchises,
             "current_brand": brand,
             "current_category": category,
             "current_franchise": franchise,
-            "current_sort": sort
+            "current_sort": sort,
+            "pagination": pagination
         }
     )
 
 
 @app.get("/franchises/{franchise_slug}")
-def franchise_landing_ssr(request: Request, franchise_slug: str, sort: Optional[str] = Query("newest")):
+def franchise_landing_ssr(request: Request, franchise_slug: str, sort: Optional[str] = Query("newest"), page: int = Query(1)):
     """URL Canonical Route targeting dedicated franchises like /franchises/halo or /franchises/fallout."""
-    # Deduce slug to tag format: "final-fantasy" -> "final fantasy" but also check database mapping matches
+    # Deduce slug to tag format: "final-fantasy" -> "final fantasy"
     cleaned_slug = franchise_slug.replace("-", " ").strip()
-    
+
     conn = get_db_connection()
     brand_stats, popular_franchises = fetch_common_stats(conn)
     cursor = conn.cursor()
 
-    # Search for products with matching slug
-    cursor.execute("""
-        SELECT * FROM products 
-        WHERE is_active = 1 AND LOWER(franchise_tags) LIKE ?
-    """, (f"%{cleaned_slug}%",))
+    where = " WHERE is_active = 1 AND LOWER(franchise_tags) LIKE ?"
+    like_param = (f"%{cleaned_slug.lower()}%",)
+
+    total_count = cursor.execute("SELECT COUNT(*) FROM products" + where, like_param).fetchone()[0]
+
+    pagination = build_pagination(f"/franchises/{franchise_slug}", {}, sort, page, total_count)
+    offset = (pagination["current_page"] - 1) * PAGE_SIZE
+
+    cursor.execute(
+        "SELECT * FROM products" + where + _order_clause(sort) + " LIMIT ? OFFSET ?",
+        like_param + (PAGE_SIZE, offset)
+    )
     rows = cursor.fetchall()
     conn.close()
 
-    # Fallback to absolute closest title matches if mapping is unindexed
+    # Resolve the human-readable franchise title from the matched rows
     matched_title = cleaned_slug.title()
     if rows:
         try:
             matched_title = next(
-                tag for row in rows for tag in json.loads(row["franchise_tags"]) 
-                if tag.lower().strip() == cleaned_slug
+                tag for row in rows for tag in json.loads(row["franchise_tags"])
+                if tag.lower().strip() == cleaned_slug.lower()
             )
         except Exception:
             pass
 
-    products = []
-    for row in rows:
-        products.append({
-            "store_url": row["store_url"],
-            "product_name": row["product_name"],
-            "current_price": row["current_price"],
-            "original_price": row["original_price"],
-            "image_url": row["image_url"],
-            "brand_name": row["brand_name"],
-            "category": row["category"],
-            "franchise_tags": json.loads(row["franchise_tags"]),
-            "updated_at": row["updated_at"]
-        })
+    products = _rows_to_products(rows)
 
     return templates.TemplateResponse(
         request=request,
         name="index.html",
-        context={
+         context={
+            "base_domain": BASE_DOMAIN,
             "products": products,
             "brand_stats": brand_stats,
             "popular_franchises": popular_franchises,
             "current_brand": None,
             "current_category": None,
             "current_franchise": matched_title,
-            "current_sort": sort
+            "current_sort": sort,
+            "pagination": pagination
         }
     )
 
 
 @app.get("/brands/{brand_slug}")
-def brand_landing_ssr(request: Request, brand_slug: str, sort: Optional[str] = Query("newest")):
+def brand_landing_ssr(request: Request, brand_slug: str, sort: Optional[str] = Query("newest"), page: int = Query(1)):
     """URL Canonical Route targeting vendor profiles like /brands/bethesda or /brands/blizzard."""
     conn = get_db_connection()
     brand_stats, popular_franchises = fetch_common_stats(conn)
     cursor = conn.cursor()
 
-    cursor.execute("""
-        SELECT * FROM products 
-        WHERE is_active = 1 AND LOWER(brand_name) = ?
-    """, (brand_slug.strip().lower(),))
+    where = " WHERE is_active = 1 AND LOWER(brand_name) = ?"
+    brand_param = (brand_slug.strip().lower(),)
+
+    total_count = cursor.execute("SELECT COUNT(*) FROM products" + where, brand_param).fetchone()[0]
+
+    pagination = build_pagination(f"/brands/{brand_slug}", {}, sort, page, total_count)
+    offset = (pagination["current_page"] - 1) * PAGE_SIZE
+
+    cursor.execute(
+        "SELECT * FROM products" + where + _order_clause(sort) + " LIMIT ? OFFSET ?",
+        brand_param + (PAGE_SIZE, offset)
+    )
     rows = cursor.fetchall()
-    conn.close()
 
     # Track real brand title
     matched_brand = brand_slug.title()
     if rows:
         matched_brand = rows[0]["brand_name"]
+    conn.close()
 
-    products = []
-    for row in rows:
-        products.append({
-            "store_url": row["store_url"],
-            "product_name": row["product_name"],
-            "current_price": row["current_price"],
-            "original_price": row["original_price"],
-            "image_url": row["image_url"],
-            "brand_name": row["brand_name"],
-            "category": row["category"],
-            "franchise_tags": json.loads(row["franchise_tags"]),
-            "updated_at": row["updated_at"]
-        })
+    products = _rows_to_products(rows)
 
     return templates.TemplateResponse(
         request=request,
         name="index.html",
         context={
+            "base_domain": BASE_DOMAIN,
             "products": products,
             "brand_stats": brand_stats,
             "popular_franchises": popular_franchises,
             "current_brand": matched_brand,
             "current_category": None,
             "current_franchise": None,
-            "current_sort": sort
+            "current_sort": sort,
+            "pagination": pagination
+        }
+    )
+
+
+# ==========================================
+# SEARCH ENDPOINT (FTS5 + FRANCHISE ALIAS EXPANSION)
+# ==========================================
+
+@app.get("/search")
+def search_ssr(request: Request, q: Optional[str] = Query(None), sort: Optional[str] = Query("newest"), page: int = Query(1)):
+    """Full-text search across product names, brands, franchises, and categories via FTS5,
+    with franchise-alias query expansion (e.g. 'bonfire' -> Dark Souls)."""
+    conn = get_db_connection()
+    brand_stats, popular_franchises = fetch_common_stats(conn)
+    cursor = conn.cursor()
+
+    match_query = _build_search_query(conn, q or "")
+    products = []
+    pagination = build_pagination("/search", {"q": q}, sort, page, 0)
+
+    if match_query:
+        total_count = cursor.execute(
+            "SELECT COUNT(*) FROM products_fts "
+            "JOIN products p ON p.rowid = products_fts.rowid "
+            "WHERE products_fts MATCH ? AND p.is_active = 1",
+            (match_query,)
+        ).fetchone()[0]
+
+        pagination = build_pagination("/search", {"q": q}, sort, page, total_count)
+        offset = (pagination["current_page"] - 1) * PAGE_SIZE
+
+        cursor.execute(
+            "SELECT p.* FROM products_fts "
+            "JOIN products p ON p.rowid = products_fts.rowid "
+            "WHERE products_fts MATCH ? AND p.is_active = 1" + _order_clause(sort) + " LIMIT ? OFFSET ?",
+            (match_query, PAGE_SIZE, offset)
+        )
+        products = _rows_to_products(cursor.fetchall())
+
+    conn.close()
+
+    return templates.TemplateResponse(
+        request=request,
+        name="index.html",
+        context={
+            "base_domain": BASE_DOMAIN,
+            "products": products,
+            "brand_stats": brand_stats,
+            "popular_franchises": popular_franchises,
+            "current_brand": None,
+            "current_category": None,
+            "current_franchise": None,
+            "current_query": q,
+            "current_sort": sort,
+            "pagination": pagination
         }
     )
 
@@ -298,7 +455,7 @@ def generate_sitemap():
     conn.close()
 
     # Format Sitemap markup elements
-    base_domain = "https://ggapparel.net" # Change to active domain name
+    base_domain = BASE_DOMAIN # Change to active domain name
     sitemap_entries = [
         f"""<url>
             <loc>{base_domain}/</loc>
