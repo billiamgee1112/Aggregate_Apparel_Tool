@@ -150,6 +150,23 @@ DEFAULT_RULESET = [
     ("mega-man", "Mega Man"),
     ("borderlands", "Borderlands"),
 
+    # ----- Mass Effect -----
+    ("mass effect", "Mass Effect"),
+    ("mass-effect", "Mass Effect"),
+    ("n7", "Mass Effect"),
+    ("normandy", "Mass Effect"),
+    ("commander shepard", "Mass Effect"),
+    ("garrus", "Mass Effect"),
+    ("tali", "Mass Effect"),
+    ("liara", "Mass Effect"),
+    ("citadel", "Mass Effect"),
+    ("reaper", "Mass Effect"),
+    ("cerberus", "Mass Effect"),
+    ("saren", "Mass Effect"),
+    ("shepard", "Mass Effect"),
+    ("mass effect 2", "Mass Effect"),
+    ("mass effect 3", "Mass Effect"),
+
     # ----- Glitch Gear core catalog (Valve + popular indies) -----
     ("portal", "Portal"),
     ("aperture", "Portal"),
