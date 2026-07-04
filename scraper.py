@@ -464,6 +464,13 @@ async def scrape_store():
     if all_scraped_items:
         save_products_to_db(all_scraped_items)
         print(f"Catalog Aggregation completed successfully! Added total of {len(all_scraped_items)} active garments.")
+
+        print("Running automatic franchise discovery...")
+        try:
+            import franchise_discovery
+            franchise_discovery.run()
+        except Exception as e:
+            print(f"Franchise Discovery Warning (non-fatal): {e}")
     else:
         print("Scraper warning: No valid apparel items extracted during concurrence session.")
 
