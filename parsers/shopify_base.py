@@ -94,12 +94,15 @@ class ShopifyJsonParser(BaseParser):
         if self._franchise_index is None:
             index = {}
             try:
-                from parsers.franchise_map import load_dynamic_mappings
+                from parsers.franchise_map import load_dynamic_mappings, COMMON_WORD_BLOCKLIST
                 mappings = load_dynamic_mappings()  # {keyword_lower: franchise_name}
                 for kw, fr in mappings.items():
                     if kw:
                         index[kw.lower().strip()] = fr
-                    if fr:
+                    # Guard against franchises whose own canonical name happens to
+                    # be a generic English word (e.g. the game literally titled
+                    # "OFF") — never let that name alone become a search key.
+                    if fr and fr.lower().strip() not in COMMON_WORD_BLOCKLIST:
                         index[fr.lower().strip()] = fr
             except Exception:
                 pass
@@ -172,6 +175,18 @@ class ShopifyJsonParser(BaseParser):
 
         text = BeautifulSoup(body_html, "html.parser").get_text(" ")
         return self._match_text_against_index(text)
+
+    @staticmethod
+    def _extract_description_snippet(body_html: str, max_len: int = 400) -> str:
+        """Strips HTML from a product's description and truncates it to a short
+        plain-text snippet. Persisted alongside the product so downstream tools
+        (e.g. the optional LLM-assisted franchise classifier in
+        franchise_discovery.py) have real context beyond the bare title."""
+        if not body_html:
+            return ""
+        text = BeautifulSoup(body_html, "html.parser").get_text(" ")
+        text = re.sub(r"\s+", " ", text).strip()
+        return text[:max_len]
 
     def _deduce_via_strategy(self, product) -> str:
         """Runs the store-specific franchise resolution strategy. Returns ""
@@ -254,5 +269,8 @@ class ShopifyJsonParser(BaseParser):
         if images and images[0].get("src"):
             image_url = images[0]["src"]
 
-        metadata = {"scraped_tag": self._deduce_franchise(product)}
+        metadata = {
+            "scraped_tag": self._deduce_franchise(product),
+            "description_snippet": self._extract_description_snippet(product.get("body_html", "")),
+        }
         return title, current_price, original_price, store_url, image_url, metadata

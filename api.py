@@ -2,6 +2,7 @@
 import sqlite3
 import json
 import os
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
@@ -15,21 +16,6 @@ from urllib.parse import urlencode
 from math import ceil
 import re
 
-app = FastAPI(
-    title="Geek Apparel Aggregator API",
-    description="Queryable API endpoints for aggregated clothing items",
-    version="1.0.0"
-)
-
-# Enable CORS 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 DB_NAME = "apparel_aggregator.db"
 
 BASE_DOMAIN = "https://gamingapparel.gg"  # Single source of truth for the domain (canonicals, sitemap, OG tags)
@@ -42,6 +28,56 @@ PAGE_SIZE = 24  # Products per page
 #   read queries against a database synced up from local maintenance runs,
 #   instead of re-running the scraper/discovery job on paid cloud compute.
 ENABLE_SCRAPER_SCHEDULER = os.getenv("ENABLE_SCRAPER_SCHEDULER", "true").strip().lower() in ("1", "true", "yes")
+
+# ==========================================
+# BACKGROUND SCHEDULER CONFIGURATION
+# ==========================================
+
+def run_scraper_job():
+    """Sync wrapper to execute the async crawler inside the scheduler thread."""
+    print("Background Job: Triggering automatic catalog scraper...")
+    try:
+        asyncio.run(scrape_store())
+    except Exception as e:
+        print(f"Background Job Error: {e}")
+
+scheduler = BackgroundScheduler()
+if ENABLE_SCRAPER_SCHEDULER:
+    scheduler.add_job(run_scraper_job, "interval", hours=24)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Starts/stops the background scheduler around the app's lifetime
+    (replaces the deprecated on_event startup/shutdown handlers)."""
+    if ENABLE_SCRAPER_SCHEDULER:
+        if not scheduler.running:
+            scheduler.start()
+            print("FastAPI Startup: Background scheduler initiated (auto-scrape + discovery every 24h).")
+    else:
+        print("FastAPI Startup: Scraper scheduler disabled (ENABLE_SCRAPER_SCHEDULER=false). "
+              "This instance will only serve reads; run scraper.py locally and sync the database instead.")
+    yield
+    if scheduler.running:
+        scheduler.shutdown()
+
+app = FastAPI(
+    title="Geek Apparel Aggregator API",
+    description="Queryable API endpoints for aggregated clothing items",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+# CORS: this is a read-only, cookie-free SSR site with no cross-origin API
+# consumers, so credentials are never needed. Restricting to the real domain
+# (rather than "*") avoids the insecure/invalid combo of wildcard origins with
+# allow_credentials=True (browsers reject that combination anyway).
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://gamingapparel.gg", "https://www.gamingapparel.gg"],
+    allow_credentials=False,
+    allow_methods=["GET"],
+    allow_headers=["*"],
+)
 
 def build_pagination(path: str, filters: dict, sort: str, page: int, total_count: int) -> dict:
     """Computes pagination state, link bases, and a canonical URL for SEO."""
@@ -190,37 +226,6 @@ def _rows_to_products(rows) -> list:
             "updated_at": row["updated_at"]
         })
     return products
-
-# ==========================================
-# BACKGROUND SCHEDULER CONFIGURATION
-# ==========================================
-
-def run_scraper_job():
-    """Sync wrapper to execute the async crawler inside the scheduler thread."""
-    print("Background Job: Triggering automatic catalog scraper...")
-    try:
-        asyncio.run(scrape_store())
-    except Exception as e:
-        print(f"Background Job Error: {e}")
-
-scheduler = BackgroundScheduler()
-if ENABLE_SCRAPER_SCHEDULER:
-    scheduler.add_job(run_scraper_job, "interval", hours=24)
-
-@app.on_event("startup")
-def start_scheduler():
-    if ENABLE_SCRAPER_SCHEDULER:
-        if not scheduler.running:
-            scheduler.start()
-            print("FastAPI Startup: Background scheduler initiated (auto-scrape + discovery every 24h).")
-    else:
-        print("FastAPI Startup: Scraper scheduler disabled (ENABLE_SCRAPER_SCHEDULER=false). "
-              "This instance will only serve reads; run scraper.py locally and sync the database instead.")
-
-@app.on_event("shutdown")
-def stop_scheduler():
-    if scheduler.running:
-        scheduler.shutdown()
 
 # ==========================================
 # CRAWLER-FRIENDLY SSR ENDPOINTS (SEO CORE)

@@ -325,9 +325,19 @@ def init_db():
             franchise_tags TEXT NOT NULL,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             is_active INTEGER DEFAULT 1,
-            category TEXT NOT NULL DEFAULT 'other'
+            category TEXT NOT NULL DEFAULT 'other',
+            description_snippet TEXT
         )
     """)
+
+    # Migration: add description_snippet to any pre-existing products table
+    # that was created before this column existed (CREATE TABLE IF NOT EXISTS
+    # is a no-op on already-existing tables, so this ALTER is required for
+    # upgrades). Feeds franchise_discovery.py's LLM-assisted classification
+    # step with real product context instead of bare titles.
+    existing_columns = {row[1] for row in cursor.execute("PRAGMA table_info(products)").fetchall()}
+    if "description_snippet" not in existing_columns:
+        cursor.execute("ALTER TABLE products ADD COLUMN description_snippet TEXT")
     
     # 2. Relational Price History Table
     cursor.execute("""
@@ -415,8 +425,8 @@ def save_products_to_db(products: list[GamingClothingItem]):
             
         cursor.execute("""
             INSERT INTO products (
-                store_url, product_name, current_price, original_price, image_url, brand_name, franchise_tags, is_active, category, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, CURRENT_TIMESTAMP)
+                store_url, product_name, current_price, original_price, image_url, brand_name, franchise_tags, is_active, category, description_snippet, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(store_url) DO UPDATE SET
                 product_name=excluded.product_name,
                 current_price=excluded.current_price,
@@ -425,6 +435,7 @@ def save_products_to_db(products: list[GamingClothingItem]):
                 brand_name=excluded.brand_name,
                 franchise_tags=excluded.franchise_tags,
                 category=excluded.category,
+                description_snippet=excluded.description_snippet,
                 is_active=1,
                 updated_at=CURRENT_TIMESTAMP
         """, (
@@ -435,7 +446,8 @@ def save_products_to_db(products: list[GamingClothingItem]):
             str(product.image_url),
             product.brand_name,
             json.dumps(product.franchise_tags),
-            product.category
+            product.category,
+            product.description_snippet
         ))
         
         # Log a price point into price progression history on changes

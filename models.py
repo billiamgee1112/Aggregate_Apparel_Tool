@@ -11,3 +11,4 @@ class GamingClothingItem(BaseModel):
     franchise_tags: List[str]
     is_active: Optional[bool] = True
     category: str
+    description_snippet: Optional[str] = None

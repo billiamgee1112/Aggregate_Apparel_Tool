@@ -27,8 +27,12 @@ import re
 import json
 import time
 import sqlite3
+import urllib.request
+import urllib.error
+from bs4 import BeautifulSoup
 
 from franchise_enrichment import _search_qids, _get_entities, _pick_game, API_DELAY
+from llm_classifier import is_available as llm_is_available, suggest_franchise
 
 DB_NAME = "apparel_aggregator.db"
 
@@ -45,6 +49,37 @@ IGNORE_NAMES = {
 DEFAULT_BUDGET = 25          # max NEW (uncached) Wikidata checks per run
 SLOW_CALL_THRESHOLD = 15     # seconds; a normal call is <2s, this means backoff kicked in
 CIRCUIT_BREAKER_LIMIT = 3    # consecutive slow/failed calls before we stop for this run
+
+DESCRIPTION_FETCH_TIMEOUT = 8
+DESCRIPTION_FETCH_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+)
+
+
+def _fetch_page_description(url: str, max_len: int = 400) -> str:
+    """Lightweight on-demand fetch of a single product page's SEO meta
+    description (plain HTTP GET, no browser, no CSS-selector guessing).
+
+    Used only as a last resort for stores that don't already have a
+    description_snippet from the main scrape (i.e. Insert Coin/Artsholic,
+    which are HTML-scraped from listing pages only and never visit individual
+    product pages). Bounded to the same small handful of unresolved items
+    that reach the LLM step each run — never touches the full catalog, so it
+    doesn't add meaningful time/load to routine scraping.
+    """
+    if not url:
+        return ""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": DESCRIPTION_FETCH_USER_AGENT})
+        with urllib.request.urlopen(req, timeout=DESCRIPTION_FETCH_TIMEOUT) as r:
+            html = r.read().decode("utf-8", errors="ignore")
+        soup = BeautifulSoup(html, "html.parser")
+        tag = soup.find("meta", attrs={"name": "description"}) or soup.find("meta", attrs={"property": "og:description"})
+        content = (tag.get("content") or "").strip() if tag else ""
+        return content[:max_len]
+    except Exception:
+        return ""
 
 
 def _ensure_tables(conn):
@@ -139,16 +174,46 @@ def _resolve_product(conn, product_name, state):
     return None, None, fully_evaluated
 
 
+def _verify_phrase(conn, phrase, state):
+    """Verifies a single arbitrary phrase (e.g. an LLM suggestion) against
+    Wikidata, using the same cache/budget/circuit-breaker machinery as normal
+    candidates. Returns the canonical Wikidata label if confirmed, else None.
+    Never trusts the phrase itself — only the verified Wikidata result."""
+    key = (phrase or "").strip().lower()
+    if not key:
+        return None
+
+    row = conn.execute(
+        "SELECT franchise_name FROM wikidata_verify_cache WHERE phrase = ?", (key,)
+    ).fetchone()
+    if row is not None:
+        return row[0]
+
+    if state["budget"] <= 0 or state["tracker"]["slow_calls"] >= CIRCUIT_BREAKER_LIMIT:
+        return None
+
+    name = _live_verify(key, state["tracker"])
+    conn.execute(
+        "INSERT OR REPLACE INTO wikidata_verify_cache (phrase, franchise_name, checked_at) "
+        "VALUES (?, ?, CURRENT_TIMESTAMP)",
+        (key, name)
+    )
+    conn.commit()
+    state["budget"] -= 1
+    state["checked"] += 1
+    return name
+
+
 def run(budget=DEFAULT_BUDGET):
     conn = sqlite3.connect(DB_NAME)
     _ensure_tables(conn)
 
     rows = conn.execute(
-        "SELECT store_url, product_name, brand_name, franchise_tags FROM products"
+        "SELECT store_url, product_name, brand_name, franchise_tags, description_snippet FROM products"
     ).fetchall()
 
     unresolved = []
-    for store_url, product_name, brand_name, franchise_tags_json in rows:
+    for store_url, product_name, brand_name, franchise_tags_json, description_snippet in rows:
         try:
             current_tags = json.loads(franchise_tags_json)
         except Exception:
@@ -157,24 +222,41 @@ def run(budget=DEFAULT_BUDGET):
         # generic items (in case a later Wikidata addition now resolves them)
         already_generic = (current_tags == [GENERIC_MERCH_TAG])
         if current_tags == [brand_name] or already_generic:
-            unresolved.append((store_url, product_name, brand_name, already_generic))
+            unresolved.append((store_url, product_name, brand_name, already_generic, description_snippet or ""))
 
     print(f"Found {len(unresolved)} unresolved product(s). Budget: {budget} new Wikidata check(s) this run.")
 
+    llm_ok = llm_is_available()
+    print(f"LLM-assisted classification: {'ENABLED' if llm_ok else 'disabled (Ollama not reachable, or ENABLE_LLM_TAGGING=false)'}")
+
     state = {"budget": budget, "checked": 0, "tracker": {"slow_calls": 0}}
     retagged = 0
+    llm_assisted = 0
     generic_tagged_new = 0
     still_generic = 0
     deferred = 0
     breaker_tripped = False
 
-    for store_url, product_name, brand_name, already_generic in unresolved:
+    for store_url, product_name, brand_name, already_generic, description_snippet in unresolved:
         if state["tracker"]["slow_calls"] >= CIRCUIT_BREAKER_LIMIT and not breaker_tripped:
             breaker_tripped = True
             print("  ! Wikidata appears to be rate-limiting this session. "
                   "Pausing further live checks; remaining items will retry next run.")
 
         resolved_name, resolved_phrase, fully_evaluated = _resolve_product(conn, product_name, state)
+
+        # Last resort before giving up to the generic catch-all: ask the local
+        # LLM for a candidate, but ONLY trust it if Wikidata independently
+        # confirms the candidate is a real game/franchise entity.
+        used_llm = False
+        if not resolved_name and fully_evaluated and llm_ok:
+            description_for_llm = description_snippet or _fetch_page_description(store_url)
+            suggestion = suggest_franchise(product_name, brand_name, description_for_llm)
+            if suggestion:
+                confirmed = _verify_phrase(conn, suggestion, state)
+                if confirmed and confirmed not in IGNORE_NAMES:
+                    resolved_name, resolved_phrase = confirmed, suggestion.lower()
+                    used_llm = True
 
         if resolved_name and resolved_name not in IGNORE_NAMES:
             conn.execute(
@@ -186,7 +268,11 @@ def run(budget=DEFAULT_BUDGET):
                 (json.dumps([resolved_name]), store_url)
             )
             retagged += 1
-            print(f"  discovered: '{resolved_phrase}' -> {resolved_name}  ({product_name})")
+            if used_llm:
+                llm_assisted += 1
+                print(f"  discovered (LLM-assisted): '{resolved_phrase}' -> {resolved_name}  ({product_name})")
+            else:
+                print(f"  discovered: '{resolved_phrase}' -> {resolved_name}  ({product_name})")
         elif fully_evaluated:
             # Confirmed: no specific franchise. Ensure it's classified (no-op if already tagged).
             if not already_generic:
@@ -221,6 +307,8 @@ def run(budget=DEFAULT_BUDGET):
     conn.commit()
     print(f"\nDiscovery done. Performed {state['checked']} live Wikidata check(s) this run.")
     print(f"Auto-retagged {retagged} product(s) with a confirmed franchise.")
+    if llm_assisted:
+        print(f"  ({llm_assisted} of those were LLM-suggested and Wikidata-confirmed.)")
     if generic_tagged_new:
         print(f"Newly classified {generic_tagged_new} product(s) as '{GENERIC_MERCH_TAG}'.")
     if still_generic:

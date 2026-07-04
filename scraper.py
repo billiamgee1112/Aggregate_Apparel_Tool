@@ -244,7 +244,8 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
                                 image_url=img_url,
                                 brand_name=brand_name,
                                 franchise_tags=[franchise_tag],
-                                category=parser.deduce_category(name, str(s_url))
+                                category=parser.deduce_category(name, str(s_url)),
+                                description_snippet=metadata.get("description_snippet", "") if isinstance(metadata, dict) else ""
                             )
                         scraped_items.append(item)
                     except Exception:
@@ -344,7 +345,8 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
                                 image_url=img_url,
                                 brand_name=brand_name,
                                 franchise_tags=[franchise_tag],
-                                category=parser.deduce_category(name, str(s_url))
+                                category=parser.deduce_category(name, str(s_url)),
+                                description_snippet=metadata.get("description_snippet", "") if isinstance(metadata, dict) else ""
                             )
                             scraped_items.append(item)
                         except Exception:
@@ -414,7 +416,8 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
                                 image_url=img_url,
                                 brand_name=brand_name,
                                 franchise_tags=[franchise_tag],
-                                category=parser.deduce_category(name, str(s_url))
+                                category=parser.deduce_category(name, str(s_url)),
+                                description_snippet=metadata.get("description_snippet", "") if isinstance(metadata, dict) else ""
                             )
                             scraped_items.append(item)
                         except Exception:

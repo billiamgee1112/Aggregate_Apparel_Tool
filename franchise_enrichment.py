@@ -19,6 +19,8 @@ import urllib.parse
 import urllib.request
 import urllib.error
 
+from parsers.franchise_map import COMMON_WORD_BLOCKLIST
+
 DB_NAME = "apparel_aggregator.db"
 WD_API = "https://www.wikidata.org/w/api.php"   # action API only — NO WDQS/SPARQL
 USER_AGENT = "GamingApparelAggregator/1.0 (franchise-enrichment)"
@@ -39,6 +41,12 @@ GENERIC = {
     "the", "of", "and", "a", "an", "for", "new", "game", "games", "video",
     "series", "official", "logo", "shirt", "tee", "hoodie", "character", "list"
 }
+
+# COMMON_WORD_BLOCKLIST (common English dictionary words / bare abbreviations
+# that are far too generic to use as standalone franchise keywords, e.g. the
+# League of Legends champion "Brand" or the game literally titled "OFF") is
+# imported from parsers.franchise_map to keep a single source of truth shared
+# with the runtime matching code in parsers/shopify_base.py.
 
 IGNORE_NAMES = {
     "Geek Apparel", "Insert Coin", "Artsholic", "Fangamer", "Glitch Gear",
@@ -221,7 +229,7 @@ def enrich_franchise(conn, name):
         if not kw or kw in seen:
             continue
         seen.add(kw)
-        if kw in GENERIC or (len(kw) < 3 and " " not in kw):
+        if kw in GENERIC or kw in COMMON_WORD_BLOCKLIST or (len(kw) < 3 and " " not in kw):
             continue
         cur = conn.execute(
             "INSERT OR IGNORE INTO franchise_mappings (keyword, franchise_name) VALUES (?, ?)",
