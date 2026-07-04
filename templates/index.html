@@ -59,9 +59,9 @@
                 <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Shop Categories</h3>
                 <div class="flex flex-col gap-2">
                     <a href="/" class="text-sm font-medium hover:text-amber-500 text-gray-300">All Categories</a>
-                    {% for cat in ["t-shirt", "hoodie", "jacket", "sweater", "pants"] %}
+                    {% for cat, label in {"t-shirt": "T-Shirts", "hoodie": "Hoodies", "jacket": "Jackets", "sweater": "Sweaters", "pants": "Pants"}.items() %}
                         <a href="/?category={{ cat }}" class="text-xs font-semibold uppercase text-gray-300 hover:text-amber-500 transition-colors {% if current_category == cat %}text-amber-500 font-bold{% endif %}">
-                            📁 {{ cat }}s
+                            📁 {{ label }}
                         </a>
                     {% endfor %}
                 </div>

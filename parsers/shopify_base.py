@@ -1,5 +1,6 @@
 # parsers/shopify_base.py
 import re
+from bs4 import BeautifulSoup
 from parsers.base import BaseParser
 
 
@@ -35,6 +36,15 @@ class ShopifyJsonParser(BaseParser):
     _VENDOR_IGNORE = {
         "printful", "bestlink", "lgm", "king graphics", "glitchgear.com",
         "fangamer", "shopify"
+    }
+
+    # Shopify collection handles that are generic layout buckets, never franchises
+    _GENERIC_COLLECTION_SLUGS = {
+        "all", "apparel", "accessories", "hoodies", "hoodies-jackets", "t-shirts",
+        "shirts", "tops", "bottoms", "outerwear", "sale", "new-arrivals",
+        "featured", "frontpage", "home-page", "clothing", "mens", "womens",
+        "unisex", "gifts", "home-office", "specialty-apparel", "collectibles",
+        "best-sellers"
     }
 
     # Lazy per-instance cache of the franchise dictionary (keyword/name -> franchise)
@@ -96,13 +106,13 @@ class ShopifyJsonParser(BaseParser):
             self._franchise_index = index
         return self._franchise_index
 
-    def _match_mappings(self, product):
+    def _match_text_against_index(self, haystack: str) -> str:
+        """Scans arbitrary text (title, tags, or description) for known franchise
+        keywords/names via the franchise_mappings dictionary."""
         index = self._load_franchise_index()
-        if not index:
+        if not index or not haystack:
             return ""
-        haystack = " ".join(
-            [product.get("title", "") or ""] + [str(t) for t in (product.get("tags") or [])]
-        ).lower()
+        haystack = haystack.lower()
         for key in sorted(index.keys(), key=len, reverse=True):
             if not key:
                 continue
@@ -111,21 +121,71 @@ class ShopifyJsonParser(BaseParser):
                 return index[key]
         return ""
 
-    def _deduce_franchise(self, product):
-        """Resolves the franchise for a product. Falls back to the store's brand_name
-        (rather than an empty string) when no franchise signal is found, so that
-        generic branded merch never falls through to junk title/URL-slug guessing."""
+    def _match_mappings(self, product):
+        haystack = " ".join(
+            [product.get("title", "") or ""] + [str(t) for t in (product.get("tags") or [])]
+        )
+        return self._match_text_against_index(haystack)
+
+    @staticmethod
+    def _looks_plausible_franchise(name: str) -> bool:
+        """Light sanity check for candidates sourced from the store's own
+        collection links (already a trustworthy signal, so this is deliberately
+        lenient compared to the stricter title-guessing heuristics elsewhere)."""
+        n = (name or "").strip()
+        if len(n) < 3 or n.isdigit():
+            return False
+        if len(n.split()) > 5:
+            return False
+        return bool(re.search(r"[a-zA-Z]", n))
+
+    def _extract_collection_candidates(self, body_html: str) -> list:
+        """Finds /collections/{slug} links embedded in the product description.
+        Many stores include 'Related Links: X Gear Collection' style references
+        that directly name the franchise even when the product title doesn't."""
+        slugs = re.findall(r"/collections/([a-z0-9\-]+)", body_html or "", re.IGNORECASE)
+        seen = set()
+        candidates = []
+        for slug in slugs:
+            slug_lower = slug.lower()
+            if slug_lower in self._GENERIC_COLLECTION_SLUGS or slug_lower in seen:
+                continue
+            seen.add(slug_lower)
+            candidates.append(" ".join(w.capitalize() for w in slug_lower.split("-")))
+        return candidates
+
+    def _match_description(self, product) -> str:
+        """Mines the product's full description (body_html) for franchise signals:
+        first checks any embedded /collections/ links (the store's own authoritative
+        categorization), then falls back to scanning the description's plain text
+        for known franchise keywords/aliases."""
+        body_html = product.get("body_html", "") or ""
+        if not body_html:
+            return ""
+
+        for candidate in self._extract_collection_candidates(body_html):
+            matched = self._match_text_against_index(candidate)
+            if matched:
+                return matched
+            if self._looks_plausible_franchise(candidate):
+                return candidate
+
+        text = BeautifulSoup(body_html, "html.parser").get_text(" ")
+        return self._match_text_against_index(text)
+
+    def _deduce_via_strategy(self, product) -> str:
+        """Runs the store-specific franchise resolution strategy. Returns ""
+        (not brand_name) when nothing is found, so the caller can still try the
+        description-mining fallback before giving up entirely."""
         if self.franchise_source == "vendor":
             v = (product.get("vendor") or "").strip()
             if v and v.lower() not in self._VENDOR_IGNORE:
                 return v
-            return self.brand_name
+            return ""
         if self.franchise_source == "known_tag":
-            matched = self._match_known(product)
-            return matched if matched else self.brand_name
+            return self._match_known(product)
         if self.franchise_source == "mapping_tags":
-            matched = self._match_mappings(product)
-            return matched if matched else self.brand_name
+            return self._match_mappings(product)
         # default: game_tag
         slug = self._game_slug_from_tags(product.get("tags"))
         name = self._franchise_from_title(slug, product.get("title", ""))
@@ -133,6 +193,24 @@ class ShopifyJsonParser(BaseParser):
             return name
         if slug:
             return slug.title()
+        return ""
+
+    def _deduce_franchise(self, product):
+        """Resolves the franchise for a product. Order of signals:
+        1. The store-specific strategy (game tag / vendor / known list / tag mapping).
+        2. The product's own description text and any embedded collection links
+           (mines data we already fetch but previously ignored).
+        3. Falls back to the store's brand_name (handled later by
+           franchise_discovery.py via Wikidata verification + the 'Gamer Culture'
+           catch-all)."""
+        resolved = self._deduce_via_strategy(product)
+        if resolved:
+            return resolved
+
+        from_description = self._match_description(product)
+        if from_description:
+            return from_description
+
         return self.brand_name
 
     # ------------------------------------------------------------------

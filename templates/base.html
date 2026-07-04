@@ -72,6 +72,28 @@
                 <nav class="flex items-center gap-6 text-sm font-semibold text-gray-300">
                     <a href="/" class="hover:text-amber-500 transition-colors">All Clothing</a>
                     <a href="/?sort=discount" class="hover:text-amber-500 transition-colors text-amber-400">🔥 Sales & Discounts</a>
+
+                    <!-- Game Collections A-Z Directory Dropdown (native <details>, no JS framework required) -->
+                    <details id="game-collections-dropdown" class="relative">
+                        <summary class="cursor-pointer select-none list-none flex items-center gap-1 hover:text-amber-500 transition-colors">
+                            Game Collections
+                            <svg class="w-3 h-3 mt-0.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd" />
+                            </svg>
+                        </summary>
+                        <div class="absolute right-0 mt-2 w-72 max-h-96 overflow-y-auto bg-gray-900 border border-gray-800 rounded-lg shadow-xl p-2 z-50">
+                            {% if all_franchises %}
+                                {% for item in all_franchises %}
+                                    <a href="/franchises/{{ item | lower | replace(' ', '-') }}" class="block px-3 py-1.5 text-sm rounded text-gray-300 hover:bg-gray-800 hover:text-amber-500 transition-colors">
+                                        {{ item }}
+                                    </a>
+                                {% endfor %}
+                            {% else %}
+                                <p class="px-3 py-2 text-xs text-gray-500">No collections indexed yet.</p>
+                            {% endif %}
+                        </div>
+                    </details>
+
                     <a href="https://github.com" target="_blank" rel="noopener" class="hover:text-amber-500 transition-colors">About</a>
                 </nav>
             </div>
@@ -93,6 +115,16 @@
             </p>
         </div>
     </footer>
+
+    <!-- Closes the Game Collections dropdown when clicking outside of it -->
+    <script>
+        document.addEventListener('click', function (event) {
+            var menu = document.getElementById('game-collections-dropdown');
+            if (menu && menu.open && !menu.contains(event.target)) {
+                menu.open = false;
+            }
+        });
+    </script>
 
 </body>
 </html>

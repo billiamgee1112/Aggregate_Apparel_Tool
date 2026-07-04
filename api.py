@@ -95,7 +95,7 @@ def fetch_common_stats(conn):
     cursor.execute("SELECT brand_name, COUNT(*) FROM products WHERE is_active = 1 GROUP BY brand_name")
     brand_stats = {row[0]: row[1] for row in cursor.fetchall()}
     
-    # Fetch a standard list of high-volume franchise tags for sidebar navigation
+    # Fetch every distinct franchise tag (excluding raw brand-name fallbacks)
     cursor.execute("SELECT franchise_tags FROM products WHERE is_active = 1")
     unique_tags = set()
     for row in cursor.fetchall():
@@ -105,8 +105,10 @@ def fetch_common_stats(conn):
                     unique_tags.add(tag)
         except Exception:
             continue
-    popular_franchises = sorted(list(unique_tags))[:18] # Top 18 index mappings
-    return brand_stats, popular_franchises
+
+    all_franchises = sorted(unique_tags)          # Full A-Z list (for the "Game Collections" directory)
+    popular_franchises = all_franchises[:18]      # Short slice for sidebar quick-links
+    return brand_stats, popular_franchises, all_franchises
 
 def _build_fts_query(raw: str) -> str:
     """Sanitizes user input into a safe FTS5 prefix-match query (AND semantics)."""
@@ -156,6 +158,13 @@ def _order_clause(sort: str) -> str:
             THEN ((original_price - current_price) / original_price) ELSE 0 END DESC
         """
     return " ORDER BY updated_at DESC"  # newest
+
+def _discount_filter_clause(sort: str, prefix: str = "") -> str:
+    """Restricts results to genuinely discounted items when sort == 'discount'.
+    'prefix' lets callers using a table alias (e.g. 'p.') qualify the columns."""
+    if sort != "discount":
+        return ""
+    return f" AND {prefix}original_price IS NOT NULL AND {prefix}original_price > {prefix}current_price"
 
 def _rows_to_products(rows) -> list:
     """Serializes DB rows into template-friendly product dicts."""
@@ -215,7 +224,7 @@ def home_index(
 ):
     """Prerenders crawler-friendly full-markup grid using Jinja2 templates."""
     conn = get_db_connection()
-    brand_stats, popular_franchises = fetch_common_stats(conn)
+    brand_stats, popular_franchises, all_franchises = fetch_common_stats(conn)
     cursor = conn.cursor()
 
     # Build shared WHERE clause
@@ -230,6 +239,9 @@ def home_index(
     if franchise:
         where += " AND franchise_tags LIKE ?"
         params.append(f"%{franchise}%")
+
+    # Restrict to genuinely discounted items when sorting by discount
+    where += _discount_filter_clause(sort)
 
     # Total count for pagination
     total_count = cursor.execute("SELECT COUNT(*) FROM products" + where, tuple(params)).fetchone()[0]
@@ -258,6 +270,7 @@ def home_index(
             "products": products,
             "brand_stats": brand_stats,
             "popular_franchises": popular_franchises,
+            "all_franchises": all_franchises,
             "current_brand": brand,
             "current_category": category,
             "current_franchise": franchise,
@@ -274,11 +287,12 @@ def franchise_landing_ssr(request: Request, franchise_slug: str, sort: Optional[
     cleaned_slug = franchise_slug.replace("-", " ").strip()
 
     conn = get_db_connection()
-    brand_stats, popular_franchises = fetch_common_stats(conn)
+    brand_stats, popular_franchises, all_franchises = fetch_common_stats(conn)
     cursor = conn.cursor()
 
     where = " WHERE is_active = 1 AND LOWER(franchise_tags) LIKE ?"
     like_param = (f"%{cleaned_slug.lower()}%",)
+    where += _discount_filter_clause(sort)
 
     total_count = cursor.execute("SELECT COUNT(*) FROM products" + where, like_param).fetchone()[0]
 
@@ -308,11 +322,12 @@ def franchise_landing_ssr(request: Request, franchise_slug: str, sort: Optional[
     return templates.TemplateResponse(
         request=request,
         name="index.html",
-         context={
+        context={
             "base_domain": BASE_DOMAIN,
             "products": products,
             "brand_stats": brand_stats,
             "popular_franchises": popular_franchises,
+            "all_franchises": all_franchises,
             "current_brand": None,
             "current_category": None,
             "current_franchise": matched_title,
@@ -326,11 +341,12 @@ def franchise_landing_ssr(request: Request, franchise_slug: str, sort: Optional[
 def brand_landing_ssr(request: Request, brand_slug: str, sort: Optional[str] = Query("newest"), page: int = Query(1)):
     """URL Canonical Route targeting vendor profiles like /brands/bethesda or /brands/blizzard."""
     conn = get_db_connection()
-    brand_stats, popular_franchises = fetch_common_stats(conn)
+    brand_stats, popular_franchises, all_franchises = fetch_common_stats(conn)
     cursor = conn.cursor()
 
     where = " WHERE is_active = 1 AND LOWER(brand_name) = ?"
     brand_param = (brand_slug.strip().lower(),)
+    where += _discount_filter_clause(sort)
 
     total_count = cursor.execute("SELECT COUNT(*) FROM products" + where, brand_param).fetchone()[0]
 
@@ -359,6 +375,7 @@ def brand_landing_ssr(request: Request, brand_slug: str, sort: Optional[str] = Q
             "products": products,
             "brand_stats": brand_stats,
             "popular_franchises": popular_franchises,
+            "all_franchises": all_franchises,
             "current_brand": matched_brand,
             "current_category": None,
             "current_franchise": None,
@@ -377,18 +394,19 @@ def search_ssr(request: Request, q: Optional[str] = Query(None), sort: Optional[
     """Full-text search across product names, brands, franchises, and categories via FTS5,
     with franchise-alias query expansion (e.g. 'bonfire' -> Dark Souls)."""
     conn = get_db_connection()
-    brand_stats, popular_franchises = fetch_common_stats(conn)
+    brand_stats, popular_franchises, all_franchises = fetch_common_stats(conn)
     cursor = conn.cursor()
 
     match_query = _build_search_query(conn, q or "")
     products = []
     pagination = build_pagination("/search", {"q": q}, sort, page, 0)
+    discount_filter = _discount_filter_clause(sort, prefix="p.")
 
     if match_query:
         total_count = cursor.execute(
             "SELECT COUNT(*) FROM products_fts "
             "JOIN products p ON p.rowid = products_fts.rowid "
-            "WHERE products_fts MATCH ? AND p.is_active = 1",
+            "WHERE products_fts MATCH ? AND p.is_active = 1" + discount_filter,
             (match_query,)
         ).fetchone()[0]
 
@@ -398,7 +416,7 @@ def search_ssr(request: Request, q: Optional[str] = Query(None), sort: Optional[
         cursor.execute(
             "SELECT p.* FROM products_fts "
             "JOIN products p ON p.rowid = products_fts.rowid "
-            "WHERE products_fts MATCH ? AND p.is_active = 1" + _order_clause(sort) + " LIMIT ? OFFSET ?",
+            "WHERE products_fts MATCH ? AND p.is_active = 1" + discount_filter + _order_clause(sort) + " LIMIT ? OFFSET ?",
             (match_query, PAGE_SIZE, offset)
         )
         products = _rows_to_products(cursor.fetchall())
@@ -413,6 +431,7 @@ def search_ssr(request: Request, q: Optional[str] = Query(None), sort: Optional[
             "products": products,
             "brand_stats": brand_stats,
             "popular_franchises": popular_franchises,
+            "all_franchises": all_franchises,
             "current_brand": None,
             "current_category": None,
             "current_franchise": None,
