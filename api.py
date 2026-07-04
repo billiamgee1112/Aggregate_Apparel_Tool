@@ -32,8 +32,16 @@ app.add_middleware(
 
 DB_NAME = "apparel_aggregator.db"
 
-BASE_DOMAIN = "https://ggapparel.net"  # Single source of truth for the domain (canonicals, sitemap, OG tags)
+BASE_DOMAIN = "https://gamingapparel.gg"  # Single source of truth for the domain (canonicals, sitemap, OG tags)
 PAGE_SIZE = 24  # Products per page
+
+# Controls whether this process runs the heavy scrape/discovery job itself.
+# LOCAL DEV (default): keep "true" — this machine is where scraping/Wikidata
+#   calls should run, since that compute is free here.
+# CLOUD DEPLOYMENT: set this env var to "false" so the hosted app only serves
+#   read queries against a database synced up from local maintenance runs,
+#   instead of re-running the scraper/discovery job on paid cloud compute.
+ENABLE_SCRAPER_SCHEDULER = os.getenv("ENABLE_SCRAPER_SCHEDULER", "true").strip().lower() in ("1", "true", "yes")
 
 def build_pagination(path: str, filters: dict, sort: str, page: int, total_count: int) -> dict:
     """Computes pagination state, link bases, and a canonical URL for SEO."""
@@ -196,13 +204,18 @@ def run_scraper_job():
         print(f"Background Job Error: {e}")
 
 scheduler = BackgroundScheduler()
-scheduler.add_job(run_scraper_job, "interval", hours=24)
+if ENABLE_SCRAPER_SCHEDULER:
+    scheduler.add_job(run_scraper_job, "interval", hours=24)
 
 @app.on_event("startup")
 def start_scheduler():
-    if not scheduler.running:
-        scheduler.start()
-        print("FastAPI Startup: Background scheduler initiated.")
+    if ENABLE_SCRAPER_SCHEDULER:
+        if not scheduler.running:
+            scheduler.start()
+            print("FastAPI Startup: Background scheduler initiated (auto-scrape + discovery every 24h).")
+    else:
+        print("FastAPI Startup: Scraper scheduler disabled (ENABLE_SCRAPER_SCHEDULER=false). "
+              "This instance will only serve reads; run scraper.py locally and sync the database instead.")
 
 @app.on_event("shutdown")
 def stop_scheduler():

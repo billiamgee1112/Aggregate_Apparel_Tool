@@ -11,13 +11,13 @@
     <meta name="robots" content="{% block robots %}index, follow{% endblock %}">
 
     <!-- Canonical URL: consolidates sort/filter duplicates onto one clean per-page URL -->
-    <link rel="canonical" href="{% block canonical %}{{ base_domain | default('https://ggapparel.net') }}{% endblock %}">
+    <link rel="canonical" href="{% block canonical %}{{ base_domain | default('https://gamingapparel.gg') }}{% endblock %}">
     
     <!-- Open Graph (Facebook, Discord, Twitter) -->
     <meta property="og:type" content="website">
     <meta property="og:title" content="{% block og_title %}Official Gaming Apparel Aggregator{% endblock %}">
     <meta property="og:description" content="{% block og_description %}Compare prices, browse sales, and track gaming wardrobe items from all your favorite developers and franchises securely.{% endblock %}">
-    <meta property="og:image" content="{{ base_domain | default('https://ggapparel.net') }}/static/images/og-featured.png">
+    <meta property="og:image" content="{{ base_domain | default('https://gamingapparel.gg') }}/static/images/og-featured.png">
     
     <!-- Tailwind CSS (Deliver extremely lightweight styles) -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -49,7 +49,7 @@
                 </div>
                 <div>
                     <a href="/" class="text-xl font-extrabold tracking-tight text-white hover:text-amber-500 transition-colors">
-                        GG<span class="text-amber-500">APPAREL</span>.net
+                        Gaming<span class="text-amber-500">Apparel</span>.gg
                     </a>
                     <span class="block text-xs text-gray-400 font-medium tracking-wide">The Gaming Wardrobe Search Engine</span>
                 </div>
@@ -108,7 +108,7 @@
     <footer class="border-t border-gray-900 bg-gray-950 py-12 mt-auto">
         <div class="max-w-7xl mx-auto px-4 text-center">
             <p class="text-sm text-gray-500">
-                &copy; 2026 GGApparel.net. We index licensed merch from Xbox, PlayStation, Nintendo, Bethesda, and indie game developers. 
+                &copy; 2026 GamingApparel.gg. We index licensed merch from Xbox, PlayStation, Nintendo, Bethesda, and indie game developers. 
             </p>
             <p class="text-xs text-gray-600 mt-2">
                 All product names, logos, logos and brands are property of their respective owners. Outbound affiliate links may earn us a small commission.

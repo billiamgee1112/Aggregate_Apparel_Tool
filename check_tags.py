@@ -3,7 +3,7 @@ import sqlite3
 
 conn = sqlite3.connect("apparel_aggregator.db")
 
-brands = ["Xbox Game Studios", "Bethesda", "Blizzard", "Fangamer", "Glitch Gear"]
+brands = ["Xbox Game Studios", "Bethesda", "Blizzard", "Fangamer", "Glitch Gear", "Insert Coin"]
 for brand in brands:
     print(f"\n===== {brand} =====")
     rows = conn.execute(

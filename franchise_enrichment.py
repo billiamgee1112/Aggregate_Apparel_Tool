@@ -21,7 +21,7 @@ import urllib.error
 
 DB_NAME = "apparel_aggregator.db"
 WD_API = "https://www.wikidata.org/w/api.php"   # action API only — NO WDQS/SPARQL
-USER_AGENT = "GGApparelAggregator/1.0 (franchise-enrichment)"
+USER_AGENT = "GamingApparelAggregator/1.0 (franchise-enrichment)"
 
 API_DELAY = 0.3            # polite pause between API calls
 PER_FRANCHISE_DELAY = 0.4

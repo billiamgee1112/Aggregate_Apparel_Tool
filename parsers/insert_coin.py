@@ -13,6 +13,64 @@ class InsertCoinParser(BaseParser):
     pagination_type = "paginated"
     max_pages = 1
 
+    # Badge/UI text that sometimes appears as a stray text node and must never
+    # be mistaken for a franchise/game label
+    _BADGE_STOPWORDS = {
+        "new", "sale", "sold out", "preorder", "available for preorder",
+        "back in stock", "low stock", "coming soon"
+    }
+
+    def _extract_game_label(self, product_el: BeautifulSoup, product_name: str) -> str:
+        """Extracts the store's own franchise/game label for this card.
+        Insert Coin renders this as a bare <h3> tag (e.g.
+        '<h3>Like A Dragon: Infinite Wealth</h3>') with no distinguishing class,
+        separate from the product title. Tries class-based guesses first (in
+        case a differently-styled card variant exists), then targets any <h3>
+        whose text isn't the product name, then a conservative text heuristic."""
+        class_candidates = [
+            ".m-listing-item__game",
+            ".m-listing-item__brand",
+            ".m-listing-item__subtitle",
+            ".m-listing-item__series",
+            ".m-listing-item__category",
+            "[class*='game']",
+            "[class*='brand']",
+            "[class*='subtitle']",
+            "[class*='series']",
+        ]
+        for sel in class_candidates:
+            el = product_el.select_one(sel)
+            if el:
+                text = el.get_text(strip=True)
+                if text and text.lower() != product_name.lower():
+                    return text
+
+        # CONFIRMED PATTERN: the franchise/game name lives in a bare <h3> tag,
+        # separate from the product title. Find any h3 whose text isn't the
+        # product name itself.
+        for h3 in product_el.find_all("h3"):
+            text = h3.get_text(strip=True)
+            if text and text.lower() != product_name.lower():
+                return text
+
+        # Conservative freeform fallback for any remaining card layout variants
+        for el in product_el.find_all(["span", "div", "p", "h4", "h5", "h6"]):
+            text = el.get_text(strip=True)
+            if not text or len(text) > 60:
+                continue
+            low = text.lower()
+            if low == product_name.lower():
+                continue
+            if low in self._BADGE_STOPWORDS:
+                continue
+            if any(sym in text for sym in ("$", "£", "€")):
+                continue
+            if len(text.split()) > 8:
+                continue
+            return text
+
+        return ""
+
     def parse_product(self, product_el: BeautifulSoup, base_url: str) -> tuple:
         # 1. Extract Details link
         link_el = product_el.select_one("a[href*='.html']") or product_el.select_one("a")
@@ -24,19 +82,13 @@ class InsertCoinParser(BaseParser):
             product_el.select_one(".m-listing-item__title") 
             or product_el.select_one("[class*='title']")
             or product_el.select_one("h2")
-            or product_el.select_one("h3")
         )
         
         if title_el:
             product_name = title_el.get_text(strip=True)
             
         if not product_name and link_el:
-            # Drop the game subtitle if it is inside the link
-            game_el = product_el.select_one(".m-listing-item__game") or product_el.select_one("[class*='game']")
             raw_text = link_el.get_text(strip=True)
-            if game_el:
-                game_text = game_el.get_text(strip=True)
-                raw_text = raw_text.replace(game_text, "").strip()
             product_name = raw_text
             
         if not product_name:
@@ -79,11 +131,8 @@ class InsertCoinParser(BaseParser):
             raw_image_url = img_el.get("src") or img_el.get("data-src") or ""
         image_url = urljoin(base_url, raw_image_url) if raw_image_url else "https://example.com/placeholder.jpg"
 
-        # 5. Extract Dynamic Store Game Tag
-        scraped_tag = ""
-        game_el = product_el.select_one(".m-listing-item__game") or product_el.select_one("[class*='game']")
-        if game_el:
-            scraped_tag = game_el.get_text(strip=True)
+        # 5. Extract Dynamic Store Game Tag (the store's own franchise categorization)
+        scraped_tag = self._extract_game_label(product_el, product_name)
 
         metadata = {"scraped_tag": scraped_tag}
 
