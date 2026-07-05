@@ -17,6 +17,14 @@
 
 {% block content %}
 
+    {% set category_options = {
+        "t-shirt": {"label": "T-Shirts", "icon": "👕"},
+        "hoodie": {"label": "Hoodies", "icon": "🎽"},
+        "jacket": {"label": "Jackets", "icon": "🥼"},
+        "sweater": {"label": "Sweaters", "icon": "🧶"},
+        "pants": {"label": "Pants", "icon": "👖"}
+    } %}
+
     <!-- Canonical Header / Title Category -->
     <div class="text-center md:text-left mb-8 pb-6 border-b border-gray-800">
         <h1 class="text-3xl md:text-4xl font-extrabold text-white tracking-tight">
@@ -38,8 +46,10 @@
     <!-- Active Search Facets -->
     <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
         
-        <!-- Sidebar Filters: Perfect for Crawler Crawling -->
-        <aside class="space-y-6">
+        <!-- Sidebar Filters: Perfect for Crawler Crawling (persistent side column on
+             desktop; hidden on mobile in favor of the compact dropdown above the
+             product grid, see below) -->
+        <aside class="hidden lg:block lg:order-1 space-y-6">
             <!-- Brand Links (High semantic power for SEO indexers!) -->
             <div class="bg-gray-900 border border-gray-800 rounded-xl p-5">
                 <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Browse by Brand</h3>
@@ -59,13 +69,7 @@
                 <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Shop Categories</h3>
                 <div class="flex flex-col gap-1.5">
                     <a href="{{ pagination.category_reset_url if pagination else '/' }}" class="text-sm font-medium rounded-lg px-3 py-3 hover:bg-gray-800 hover:text-amber-500 text-gray-300 transition-colors {% if not current_category %}text-amber-500 font-bold bg-gray-800{% endif %}">All Categories</a>
-                    {% for cat, info in {
-                        "t-shirt": {"label": "T-Shirts", "icon": "👕"},
-                        "hoodie": {"label": "Hoodies", "icon": "🎽"},
-                        "jacket": {"label": "Jackets", "icon": "🧥"},
-                        "sweater": {"label": "Sweaters", "icon": "🧶"},
-                        "pants": {"label": "Pants", "icon": "👖"}
-                    }.items() %}
+                    {% for cat, info in category_options.items() %}
                         <a href="{{ pagination.category_base_url if pagination else '/?' }}category={{ cat }}" class="flex items-center gap-2 text-sm font-semibold uppercase rounded-lg px-3 py-3 text-gray-300 hover:bg-gray-800 hover:text-amber-500 transition-colors {% if current_category == cat %}text-amber-500 font-bold bg-gray-800{% endif %}">
                             <span class="text-base">{{ info.icon }}</span> {{ info.label }}
                         </a>
@@ -87,8 +91,42 @@
         </aside>
 
         <!-- Product Grid Section -->
-        <section class="lg:col-span-3">
-            
+        <section class="lg:col-span-3 order-1 lg:order-2">
+
+            <!-- Mobile-only lightweight filters dropdown (native <details>, no JS) -
+                 replaces the full sidebar for small screens so users aren't stuck
+                 scrolling past a bulky filter panel to reach products, but still
+                 get quick one-tap access to the most-used filters (brand + category)
+                 right at the top. Desktop keeps the persistent side column as-is. -->
+            <details class="lg:hidden bg-gray-900 border border-gray-800 rounded-xl mb-4">
+                <summary class="cursor-pointer select-none list-none flex items-center justify-between gap-2 p-4 text-sm font-bold text-gray-300">
+                    <span>🔍 Filters &amp; Categories</span>
+                    <svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                        <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd" />
+                    </svg>
+                </summary>
+                <div class="border-t border-gray-800 p-4 space-y-4">
+                    <div>
+                        <h4 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Brand</h4>
+                        <div class="flex flex-wrap gap-2">
+                            <a href="/{{ preserved_qs | default('') }}" class="text-xs font-semibold rounded px-2.5 py-1.5 transition-colors {% if not current_brand %}bg-amber-500 text-gray-950{% else %}bg-gray-800 text-gray-300 hover:bg-gray-700{% endif %}">All Brands</a>
+                            {% for brand, count in brand_stats.items() %}
+                                <a href="/brands/{{ brand | lower }}{{ preserved_qs | default('') }}" class="text-xs font-semibold rounded px-2.5 py-1.5 transition-colors {% if current_brand | lower == brand | lower %}bg-amber-500 text-gray-950{% else %}bg-gray-800 text-gray-300 hover:bg-gray-700{% endif %}">{{ brand }}</a>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    <div>
+                        <h4 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Category</h4>
+                        <div class="flex flex-wrap gap-2">
+                            <a href="{{ pagination.category_reset_url if pagination else '/' }}" class="text-xs font-semibold rounded px-2.5 py-1.5 transition-colors {% if not current_category %}bg-amber-500 text-gray-950{% else %}bg-gray-800 text-gray-300 hover:bg-gray-700{% endif %}">All Categories</a>
+                            {% for cat, info in category_options.items() %}
+                                <a href="{{ pagination.category_base_url if pagination else '/?' }}category={{ cat }}" class="text-xs font-semibold rounded px-2.5 py-1.5 transition-colors {% if current_category == cat %}bg-amber-500 text-gray-950{% else %}bg-gray-800 text-gray-300 hover:bg-gray-700{% endif %}">{{ info.icon }} {{ info.label }}</a>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </details>
+
             <!-- Filter Sorting Options -->
             <div class="flex flex-wrap justify-between items-center gap-4 bg-gray-900 border border-gray-800 p-4 rounded-xl mb-6">
                 <div class="text-xs font-bold text-gray-400">

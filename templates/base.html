@@ -1,6 +1,6 @@
 <!-- templates/base.html -->
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="scroll-smooth">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -64,7 +64,7 @@
                     <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">🔎</span>
                 </form>
 
-                <nav class="flex items-center gap-6 text-sm font-semibold text-gray-300">
+                <nav class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 sm:gap-x-6 text-sm font-semibold text-gray-300">
                     <a href="/" class="hover:text-amber-500 transition-colors">All Clothing</a>
                     <a href="/?sort=discount" class="hover:text-amber-500 transition-colors text-amber-400">🔥 Sales & Discounts</a>
                     <a href="/about" class="hover:text-amber-500 transition-colors">About</a>
@@ -80,7 +80,7 @@
                                 <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd" />
                             </svg>
                         </summary>
-                        <div id="game-collections-list" class="absolute right-0 mt-2 w-72 max-h-96 overflow-y-auto bg-gray-900 border border-gray-800 rounded-lg shadow-xl p-2 z-50">
+                        <div id="game-collections-list" class="absolute right-0 mt-2 w-72 max-w-[90vw] max-h-96 overflow-y-auto bg-gray-900 border border-gray-800 rounded-lg shadow-xl p-2 z-50">
                             {% if all_franchises %}
                                 {% for item in all_franchises %}
                                     <a href="/franchises/{{ item | lower | replace(' ', '-') }}{{ preserved_qs | default('') }}" class="block px-3 py-1.5 text-sm rounded text-gray-300 hover:bg-gray-800 hover:text-amber-500 transition-colors">
