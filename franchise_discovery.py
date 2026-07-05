@@ -299,7 +299,7 @@ def run(budget=DEFAULT_BUDGET):
             )
             conn.execute(
                 "UPDATE products SET franchise_tags = ?, franchise_verified = 1 WHERE store_url = ?",
-                (json.dumps([resolved_name]), store_url)
+                (json.dumps([resolved_name], ensure_ascii=False), store_url)
             )
             retagged += 1
             if used_llm:
@@ -312,7 +312,7 @@ def run(budget=DEFAULT_BUDGET):
             if not already_generic:
                 conn.execute(
                     "UPDATE products SET franchise_tags = ?, franchise_verified = 1 WHERE store_url = ?",
-                    (json.dumps([GENERIC_MERCH_TAG]), store_url)
+                    (json.dumps([GENERIC_MERCH_TAG], ensure_ascii=False), store_url)
                 )
                 generic_tagged_new += 1
 
@@ -367,7 +367,7 @@ def run(budget=DEFAULT_BUDGET):
             )
             conn.execute(
                 "UPDATE products SET franchise_tags = ?, franchise_verified = 1 WHERE store_url = ?",
-                (json.dumps([resolved_name]), store_url)
+                (json.dumps([resolved_name], ensure_ascii=False), store_url)
             )
             verified_confirmed += 1
             if used_llm:

@@ -11,7 +11,17 @@ class ArtsholicParser(BaseParser):
     pagination_type = "paginated"
     max_pages = 50
 
+    # Artsholic's "game-art" category also carries pure-anime product lines
+    # with no video game tie-in (unlike e.g. Dragon Ball Z, which has actual
+    # games like Budokai Tenkaichi) - these don't belong on a gaming apparel
+    # site and are excluded outright rather than tagged.
+    _EXCLUDED_TAG_SLUGS = {"demon-slayer", "jujutsu-kaisen"}
+
     def parse_product(self, product: BeautifulSoup, base_url: str) -> tuple:
+        classes = product.get("class", [])
+        if any(cls.startswith("product_tag-") and cls.replace("product_tag-", "") in self._EXCLUDED_TAG_SLUGS for cls in classes):
+            return "", 0.0, None, "", "", {}
+
         store_url = base_url
         link_el = product.select_one("a[href*='/product/']") or product.select_one("a")
         if link_el and link_el.has_attr('href'):

@@ -511,7 +511,7 @@ def save_products_to_db(products: list[GamingClothingItem]):
             product.original_price,
             str(product.image_url),
             product.brand_name,
-            json.dumps(product.franchise_tags),
+            json.dumps(product.franchise_tags, ensure_ascii=False),
             product.category,
             product.description_snippet,
             1 if product.franchise_verified else 0
