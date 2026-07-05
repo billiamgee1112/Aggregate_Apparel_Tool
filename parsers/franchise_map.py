@@ -45,6 +45,36 @@ COMMON_WORD_BLOCKLIST = {
     # Tower" Wikidata entity for a generic "Mystery T-Shirt Bundle" grab-bag
     # product - the same class of collision as "Pure"/"PEAK" above.
     "mystery",
+    # Added 2026-07-05: bare "heroes" (mapped to "Heroes of the Storm") was
+    # colliding with unrelated products in two ways: (1) "Sonic Heroes" (a
+    # completely different game) getting mistagged as Heroes of the Storm
+    # purely because both titles contain the word "heroes", and (2) The
+    # Yetee's "Heroes" (a Darkest Dungeon shirt, URL slug ".../heroes-1")
+    # losing its correct scraped_tag to this same collision. The full phrase
+    # "heroes of the storm" is mapped separately and unaffected by this
+    # removal - checked existing DB impact first, the 6 real Heroes of the
+    # Storm products all contain that full phrase in their title/URL already.
+    "heroes",
+    # Added 2026-07-05: franchise_discovery.py's Wikidata/LLM-assisted
+    # candidate-phrase check (used for the Atari store's brand-fallback
+    # nostalgia/lifestyle items) confirmed several badly-wrong matches this
+    # run: "stitch" -> Lilo & Stitch (a shirt with a "stitched-on" LOGO
+    # DESIGN effect, nothing to do with Disney's Lilo & Stitch), "atari
+    # video" -> Atari Video Cube (wrong entity for the real 1977 Atari Video
+    # Music console), "atari 2600" -> Atari 2600 Action Pack (a specific
+    # cartridge compilation, not the plain console-branded tee it was
+    # matched against), "intellivision" -> Intellivision Lives! (a specific
+    # 2003 compilation re-release, not the console/brand itself),
+    # "dusk" -> Dusk (the word just meant a color/time-of-day in "Dusk Fuji
+    # Tee", unrelated to the 2018 FPS game of the same name), "golden key" ->
+    # Golden Key (generic "unlock hidden adventures" marketing copy on a hat,
+    # not tied to any real franchise called Golden Key). All 9 affected
+    # products were reverted to the "Gamer Culture" catch-all (matching the
+    # established precedent for similar generic Atari nostalgia merch, e.g.
+    # "Red Fuji Block Zip Hoodie") - checked DB impact first, no other
+    # product's tag depends on any of these six phrases.
+    "stitch", "atari video", "atari 2600", "intellivision", "dusk",
+    "golden key",
 }
 
 # Characters who guest-star in Super Smash Bros but have their own separate

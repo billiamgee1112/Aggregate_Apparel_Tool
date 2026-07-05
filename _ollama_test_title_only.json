@@ -1,6 +1,0 @@
-{
-  "model": "qwen2.5:14b-instruct",
-  "prompt": "You are classifying a gaming-apparel product by video game franchise, using ONLY the product title below (no other context is available).\n\nStore: Insert Coin Clothing (sells video-game-themed apparel)\nProduct title: \"Aloha Adachi\"\n\nQuestion: What specific, real, well-known video game franchise does this product most likely belong to? If you are not reasonably confident, answer null rather than guessing.\n\nRespond with ONLY a JSON object, no other text: {\"franchise\": \"<name or null>\", \"confidence\": \"<high|medium|low>\", \"reasoning\": \"<short reason>\"}",
-  "stream": false,
-  "format": "json"
-}

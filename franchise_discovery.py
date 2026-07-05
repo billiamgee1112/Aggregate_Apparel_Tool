@@ -112,11 +112,22 @@ def _candidate_phrases(title):
     titles (e.g. "Pure", a 2008 racing game), which would otherwise slip
     through Wikidata verification despite being blocklisted for keyword
     matching elsewhere - this closes that loophole.
+
+    Also skips single-WORD candidates (unless the whole title is only one
+    word, with nothing shorter to fall back to). Added 2026-07-05 after a
+    string of bad auto-tags (e.g. "Stitch Effect Atari Ringer Tee" ->
+    Lilo & Stitch) where a single common/ambiguous leading-word remainder
+    ended up being the ONLY candidate tried once every longer prefix failed
+    to match anything, and Wikidata's fuzzy search confidently returned a
+    real but totally unrelated entity for that one bare word. Requiring 2+
+    words gives Wikidata enough specificity to avoid that class of mistake.
     """
     cleaned = re.sub(r"[^0-9A-Za-z\s]", " ", title)
     words = cleaned.split()
     seen = set()
     for end in range(min(len(words), 6), 0, -1):
+        if end < 2 and len(words) > 1:
+            continue
         phrase = " ".join(words[:end])
         key = phrase.lower()
         if key not in seen and key not in COMMON_WORD_BLOCKLIST:
@@ -126,7 +137,17 @@ def _candidate_phrases(title):
 
 def _live_verify(phrase, tracker):
     """Performs the actual Wikidata lookup, tracking slow/failed calls for the
-    circuit breaker."""
+    circuit breaker.
+
+    Rejects a match whose Wikidata label drifts 2+ words beyond the searched
+    phrase (e.g. querying "atari 2600" but Wikidata's fuzzy search matching
+    the much more specific "Atari 2600 Action Pack" cartridge compilation).
+    A generic query should only be trusted for an equally-generic/close
+    match - a big jump in specificity means the query wasn't actually naming
+    that exact thing. One extra word is still allowed (e.g. "legend of
+    zelda" -> "The Legend of Zelda") since that's a common, legitimate
+    canonical-title pattern, not a drift into a different, unrelated item.
+    """
     start = time.time()
     try:
         qids = _search_qids(phrase, limit=3)
@@ -137,7 +158,12 @@ def _live_verify(phrase, tracker):
         qid, ent = _pick_game(entities, qids)
         if not qid:
             return None
-        return ent.get("labels", {}).get("en", {}).get("value") or phrase
+        label = ent.get("labels", {}).get("en", {}).get("value") or phrase
+        query_word_count = len(phrase.split())
+        label_word_count = len(re.findall(r"[0-9A-Za-z]+", label))
+        if label_word_count - query_word_count >= 2:
+            return None
+        return label
     except Exception:
         return None
     finally:
@@ -196,6 +222,13 @@ def _verify_phrase_ex(conn, phrase, state):
     budget/circuit-breaker exhaustion. Returns (name_or_None, fully_evaluated)."""
     key = (phrase or "").strip().lower()
     if not key or key in COMMON_WORD_BLOCKLIST:
+        return None, True
+    # Same 2+ word minimum as _candidate_phrases, applied here too since this
+    # path handles LLM-suggested candidates and existing-tag re-verification
+    # - both of which produced bad single-word auto-confirmations before
+    # (e.g. LLM-suggested "intellivision" alone -> wrongly confirmed as
+    # "Intellivision Lives!", a specific compilation re-release).
+    if len(key.split()) < 2:
         return None, True
 
     row = conn.execute(

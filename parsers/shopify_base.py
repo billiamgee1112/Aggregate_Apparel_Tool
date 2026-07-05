@@ -58,7 +58,8 @@ class ShopifyJsonParser(BaseParser):
     _APPAREL_HINTS = [
         "shirt", "tee", "hoodie", "sweater", "sweatshirt", "jacket", "hat",
         "beanie", "cap", "sock", "short", "pant", "crewneck", "tank",
-        "long sleeve", "apparel", "jersey", "pullover", "outerwear", "clothing"
+        "long sleeve", "apparel", "jersey", "pullover", "outerwear", "clothing",
+        "headwear", "lounge", "flannel", "onesie", "dress", "joggers"
     ]
 
     # Vendors that are fulfillment providers / store names, never franchises

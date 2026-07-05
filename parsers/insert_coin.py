@@ -137,12 +137,13 @@ class InsertCoinParser(BaseParser):
         # 5. Extract Dynamic Store Game Tag (the store's own franchise categorization).
         # Mystery/randomized bundle products (e.g. "Random Hoodie", "Random Tee"
         # under /bundles/) have no single real franchise by design - skip label
-        # extraction entirely for these so they correctly fall through to the
-        # brand-name/Wikidata-discovery pipeline (usually landing on "Gamer
-        # Culture") instead of picking up unrelated promotional h3 text like
-        # "Selected By Our Team".
+        # extraction entirely and pin them directly to the site's "Gamer
+        # Culture" catch-all. (Previously left as "" to fall through to the
+        # generic title-tokenizer/URL-slug guesser, but that naively grabbed
+        # the literal leading word "Random" from the product name as if it
+        # were a franchise - fixed by short-circuiting here instead.)
         if "/bundles/" in store_url:
-            scraped_tag = ""
+            scraped_tag = "Gamer Culture"
         else:
             scraped_tag = self._extract_game_label(product_el, product_name)
 

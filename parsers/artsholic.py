@@ -16,6 +16,10 @@ class ArtsholicParser(BaseParser):
     # games like Budokai Tenkaichi) - these don't belong on a gaming apparel
     # site and are excluded outright rather than tagged.
     _EXCLUDED_TAG_SLUGS = {"demon-slayer", "jujutsu-kaisen"}
+    # Belt-and-suspenders: the product_tag-X CSS class isn't reliably present
+    # on every archive layout/product variant (e.g. "Shorts" listings), so we
+    # also exclude based on the product title text itself.
+    _EXCLUDED_NAME_KEYWORDS = ("jujutsu kaisen", "demon slayer")
 
     def parse_product(self, product: BeautifulSoup, base_url: str) -> tuple:
         classes = product.get("class", [])
@@ -33,6 +37,9 @@ class ArtsholicParser(BaseParser):
             or product.select_one("h3")
         )
         product_name = product_name_el.get_text(strip=True) if product_name_el else ""
+
+        if any(kw in product_name.lower() for kw in self._EXCLUDED_NAME_KEYWORDS):
+            return "", 0.0, None, "", "", {}
 
         price_el = product.select_one(".price")
         current_price = 0.0

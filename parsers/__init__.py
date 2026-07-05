@@ -13,6 +13,11 @@ from .culture_kings import CultureKingsParser
 from .sega import SegaParser
 from .square_enix import SquareEnixParser
 from .ign import IgnParser
+from .sanshee import SansheeParser
+from .atari import AtariParser
+from .theyetee import TheYeteeParser
+from .bioware import BioWareParser
+from .cdprojektred import CdProjektRedParser
 
 # Master registry of active storefront scraper plugins
 ACTIVE_PARSERS = [
@@ -29,5 +34,10 @@ ACTIVE_PARSERS = [
     CultureKingsParser(),
     SegaParser(),
     SquareEnixParser(),
-    IgnParser()
+    IgnParser(),
+    SansheeParser(),
+    AtariParser(),
+    TheYeteeParser(),
+    BioWareParser(),
+    CdProjektRedParser()
 ]
