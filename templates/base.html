@@ -18,25 +18,20 @@
     <meta property="og:title" content="{% block og_title %}Official Gaming Apparel Aggregator{% endblock %}">
     <meta property="og:description" content="{% block og_description %}Compare prices, browse sales, and track gaming wardrobe items from all your favorite developers and franchises securely.{% endblock %}">
     <meta property="og:image" content="{{ base_domain | default('https://gamingapparel.gg') }}/static/images/og-featured.png">
-    
-    <!-- Tailwind CSS (Deliver extremely lightweight styles) -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        primary: '#111827',
-                        accent: '#F59E0B'
-                    }
-                }
-            }
-        }
-    </script>
-    <style>
-        /* Smooth, instant page load experience */
-        [x-cloak] { display: none !important; }
-    </style>
+
+    <!-- Twitter/X Card (separate from Open Graph for reliable preview rendering) -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="{% block twitter_title %}Official Gaming Apparel Aggregator{% endblock %}">
+    <meta name="twitter:description" content="{% block twitter_description %}Compare prices, browse sales, and track gaming wardrobe items from all your favorite developers and franchises securely.{% endblock %}">
+    <meta name="twitter:image" content="{{ base_domain | default('https://gamingapparel.gg') }}/static/images/og-featured.png">
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+
+    <!-- Compiled, purged Tailwind CSS (built via `npm run build:css` - see package.json).
+         NOT loaded from the CDN script: that recompiles the full framework in the
+         browser on every page view, which is explicitly unsuitable for production. -->
+    <link rel="stylesheet" href="/static/css/tailwind.css">
 </head>
 <body class="bg-gray-950 text-gray-100 min-h-screen flex flex-col font-sans">
 
@@ -72,16 +67,20 @@
                 <nav class="flex items-center gap-6 text-sm font-semibold text-gray-300">
                     <a href="/" class="hover:text-amber-500 transition-colors">All Clothing</a>
                     <a href="/?sort=discount" class="hover:text-amber-500 transition-colors text-amber-400">🔥 Sales & Discounts</a>
+                    <a href="/about" class="hover:text-amber-500 transition-colors">About</a>
 
                     <!-- Game Collections A-Z Directory Dropdown (native <details>, no JS framework required) -->
                     <details id="game-collections-dropdown" class="relative">
-                        <summary class="cursor-pointer select-none list-none flex items-center gap-1 hover:text-amber-500 transition-colors">
-                            Game Collections
-                            <svg class="w-3 h-3 mt-0.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                        <summary class="cursor-pointer select-none list-none flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-gray-950 font-black uppercase tracking-wide text-xs px-4 py-2.5 rounded-lg transition-colors shadow">
+                            🎮 Game Collections
+                            {% if all_franchises %}
+                                <span class="bg-gray-950/25 text-gray-950 text-[10px] font-bold px-1.5 py-0.5 rounded-full">{{ all_franchises | length }}</span>
+                            {% endif %}
+                            <svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                                 <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd" />
                             </svg>
                         </summary>
-                        <div class="absolute right-0 mt-2 w-72 max-h-96 overflow-y-auto bg-gray-900 border border-gray-800 rounded-lg shadow-xl p-2 z-50">
+                        <div id="game-collections-list" class="absolute right-0 mt-2 w-72 max-h-96 overflow-y-auto bg-gray-900 border border-gray-800 rounded-lg shadow-xl p-2 z-50">
                             {% if all_franchises %}
                                 {% for item in all_franchises %}
                                     <a href="/franchises/{{ item | lower | replace(' ', '-') }}" class="block px-3 py-1.5 text-sm rounded text-gray-300 hover:bg-gray-800 hover:text-amber-500 transition-colors">
@@ -93,8 +92,6 @@
                             {% endif %}
                         </div>
                     </details>
-
-                    <a href="https://github.com" target="_blank" rel="noopener" class="hover:text-amber-500 transition-colors">About</a>
                 </nav>
             </div>
         </div>
@@ -111,12 +108,18 @@
                 &copy; 2026 GamingApparel.gg. We index licensed merch from Xbox, PlayStation, Nintendo, Bethesda, and indie game developers. 
             </p>
             <p class="text-xs text-gray-600 mt-2">
-                All product names, logos, logos and brands are property of their respective owners. Outbound affiliate links may earn us a small commission.
+                All product names, logos, and brands are property of their respective owners. Outbound affiliate links may earn the site a small commission.
+            </p>
+            <p class="text-xs text-gray-600 mt-4">
+                <a href="/about" class="hover:text-amber-500 transition-colors underline">About this site</a>
             </p>
         </div>
     </footer>
 
-    <!-- Closes the Game Collections dropdown when clicking outside of it -->
+    <!-- Closes the Game Collections dropdown when clicking outside of it, and
+         remembers/restores its scroll position (via localStorage) so re-opening
+         it later - or reloading the page entirely - doesn't force the user to
+         scroll back down through the whole A-Z list every time. -->
     <script>
         document.addEventListener('click', function (event) {
             var menu = document.getElementById('game-collections-dropdown');
@@ -124,6 +127,30 @@
                 menu.open = false;
             }
         });
+
+        (function () {
+            var STORAGE_KEY = 'gameCollectionsScrollPos';
+            var menu = document.getElementById('game-collections-dropdown');
+            var list = document.getElementById('game-collections-list');
+            if (!menu || !list) return;
+
+            // Restore scroll position once the dropdown is actually visible -
+            // setting scrollTop while a closed <details> hides its content
+            // doesn't reliably stick in every browser, so wait for the 'toggle'
+            // event (which fires whenever the dropdown opens OR closes).
+            menu.addEventListener('toggle', function () {
+                if (menu.open) {
+                    var saved = localStorage.getItem(STORAGE_KEY);
+                    if (saved !== null) {
+                        list.scrollTop = parseInt(saved, 10) || 0;
+                    }
+                }
+            });
+
+            list.addEventListener('scroll', function () {
+                localStorage.setItem(STORAGE_KEY, list.scrollTop);
+            }, { passive: true });
+        })();
     </script>
 
 </body>

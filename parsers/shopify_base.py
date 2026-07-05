@@ -157,24 +157,32 @@ class ShopifyJsonParser(BaseParser):
             candidates.append(" ".join(w.capitalize() for w in slug_lower.split("-")))
         return candidates
 
-    def _match_description(self, product) -> str:
+    def _match_description(self, product) -> tuple:
         """Mines the product's full description (body_html) for franchise signals:
         first checks any embedded /collections/ links (the store's own authoritative
         categorization), then falls back to scanning the description's plain text
-        for known franchise keywords/aliases."""
+        for known franchise keywords/aliases.
+
+        Returns (name: str, verified: bool). The keyword-matched paths are
+        trusted; the bare "looks_plausible_franchise" collection-slug guess is
+        NOT verified - it's a lenient heuristic with no independent check, the
+        same class of gap that let "Selected By Our Team" slip through as a
+        franchise on a different store earlier.
+        """
         body_html = product.get("body_html", "") or ""
         if not body_html:
-            return ""
+            return "", True
 
         for candidate in self._extract_collection_candidates(body_html):
             matched = self._match_text_against_index(candidate)
             if matched:
-                return matched
+                return matched, True
             if self._looks_plausible_franchise(candidate):
-                return candidate
+                return candidate, False
 
         text = BeautifulSoup(body_html, "html.parser").get_text(" ")
-        return self._match_text_against_index(text)
+        matched = self._match_text_against_index(text)
+        return matched, True
 
     @staticmethod
     def _extract_description_snippet(body_html: str, max_len: int = 400) -> str:
@@ -210,6 +218,18 @@ class ShopifyJsonParser(BaseParser):
             return slug.title()
         return ""
 
+    def _canonicalize_franchise_name(self, name: str) -> str:
+        """Normalizes a resolved franchise name against any already-known
+        canonical spelling/casing (via the franchise_mappings table), fixing
+        cases where a store's own vendor field is inconsistently cased across
+        different product listings (e.g. Fangamer's vendor field says
+        "OneShot" on one product and "Oneshot" on another - both should
+        collapse to one tag). No-ops if the name isn't already known."""
+        if not name:
+            return name
+        canonical = self._load_franchise_index().get(name.lower().strip())
+        return canonical if canonical else name
+
     def _deduce_franchise(self, product):
         """Resolves the franchise for a product. Order of signals:
         1. The store-specific strategy (game tag / vendor / known list / tag mapping).
@@ -217,16 +237,22 @@ class ShopifyJsonParser(BaseParser):
            (mines data we already fetch but previously ignored).
         3. Falls back to the store's brand_name (handled later by
            franchise_discovery.py via Wikidata verification + the 'Gamer Culture'
-           catch-all)."""
+           catch-all).
+
+        Returns (name: str, verified: bool) - see _match_description for what
+        "verified" means here. The store-specific strategy is always first-party
+        data (store's own vendor/game-tag/known-list/keyword-mapping signal) so
+        it's always trusted when non-empty.
+        """
         resolved = self._deduce_via_strategy(product)
         if resolved:
-            return resolved
+            return self._canonicalize_franchise_name(resolved), True
 
-        from_description = self._match_description(product)
+        from_description, description_verified = self._match_description(product)
         if from_description:
-            return from_description
+            return self._canonicalize_franchise_name(from_description), description_verified
 
-        return self.brand_name
+        return self.brand_name, True
 
     # ------------------------------------------------------------------
     # Product parsing (product is a dict from products.json)
@@ -269,8 +295,10 @@ class ShopifyJsonParser(BaseParser):
         if images and images[0].get("src"):
             image_url = images[0]["src"]
 
+        franchise_name, franchise_verified = self._deduce_franchise(product)
         metadata = {
-            "scraped_tag": self._deduce_franchise(product),
+            "scraped_tag": franchise_name,
+            "franchise_verified": franchise_verified,
             "description_snippet": self._extract_description_snippet(product.get("body_html", "")),
         }
         return title, current_price, original_price, store_url, image_url, metadata

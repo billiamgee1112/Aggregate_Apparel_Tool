@@ -33,6 +33,7 @@ from bs4 import BeautifulSoup
 
 from franchise_enrichment import _search_qids, _get_entities, _pick_game, API_DELAY
 from llm_classifier import is_available as llm_is_available, suggest_franchise
+from parsers.franchise_map import COMMON_WORD_BLOCKLIST
 
 DB_NAME = "apparel_aggregator.db"
 
@@ -105,6 +106,12 @@ def _candidate_phrases(title):
     """Generates shrinking leading-phrase candidates from a title, e.g.
     'DOOM: The Dark Ages Slayer Moto Jacket' ->
     ['doom the dark ages slayer moto', ..., 'doom the dark ages', 'doom the dark', 'doom']
+
+    Skips any candidate that's in COMMON_WORD_BLOCKLIST: some common English
+    words happen to ALSO be real (but obscure/irrelevant) Wikidata game
+    titles (e.g. "Pure", a 2008 racing game), which would otherwise slip
+    through Wikidata verification despite being blocklisted for keyword
+    matching elsewhere - this closes that loophole.
     """
     cleaned = re.sub(r"[^0-9A-Za-z\s]", " ", title)
     words = cleaned.split()
@@ -112,7 +119,7 @@ def _candidate_phrases(title):
     for end in range(min(len(words), 6), 0, -1):
         phrase = " ".join(words[:end])
         key = phrase.lower()
-        if key not in seen:
+        if key not in seen and key not in COMMON_WORD_BLOCKLIST:
             seen.add(key)
             yield key
 
@@ -179,18 +186,26 @@ def _verify_phrase(conn, phrase, state):
     Wikidata, using the same cache/budget/circuit-breaker machinery as normal
     candidates. Returns the canonical Wikidata label if confirmed, else None.
     Never trusts the phrase itself — only the verified Wikidata result."""
+    name, _fully_evaluated = _verify_phrase_ex(conn, phrase, state)
+    return name
+
+
+def _verify_phrase_ex(conn, phrase, state):
+    """Same as _verify_phrase, but also returns whether the phrase was
+    actually evaluated (cache hit or live check performed) vs. skipped due to
+    budget/circuit-breaker exhaustion. Returns (name_or_None, fully_evaluated)."""
     key = (phrase or "").strip().lower()
-    if not key:
-        return None
+    if not key or key in COMMON_WORD_BLOCKLIST:
+        return None, True
 
     row = conn.execute(
         "SELECT franchise_name FROM wikidata_verify_cache WHERE phrase = ?", (key,)
     ).fetchone()
     if row is not None:
-        return row[0]
+        return row[0], True
 
     if state["budget"] <= 0 or state["tracker"]["slow_calls"] >= CIRCUIT_BREAKER_LIMIT:
-        return None
+        return None, False
 
     name = _live_verify(key, state["tracker"])
     conn.execute(
@@ -201,7 +216,7 @@ def _verify_phrase(conn, phrase, state):
     conn.commit()
     state["budget"] -= 1
     state["checked"] += 1
-    return name
+    return name, True
 
 
 def run(budget=DEFAULT_BUDGET):
@@ -209,11 +224,12 @@ def run(budget=DEFAULT_BUDGET):
     _ensure_tables(conn)
 
     rows = conn.execute(
-        "SELECT store_url, product_name, brand_name, franchise_tags, description_snippet FROM products"
+        "SELECT store_url, product_name, brand_name, franchise_tags, description_snippet, franchise_verified FROM products"
     ).fetchall()
 
     unresolved = []
-    for store_url, product_name, brand_name, franchise_tags_json, description_snippet in rows:
+    unverified = []
+    for store_url, product_name, brand_name, franchise_tags_json, description_snippet, franchise_verified in rows:
         try:
             current_tags = json.loads(franchise_tags_json)
         except Exception:
@@ -221,10 +237,22 @@ def run(budget=DEFAULT_BUDGET):
         # Reconsider both "still just the brand name" AND previously auto-tagged
         # generic items (in case a later Wikidata addition now resolves them)
         already_generic = (current_tags == [GENERIC_MERCH_TAG])
-        if current_tags == [brand_name] or already_generic:
+        is_brand_fallback = (current_tags == [brand_name])
+        if is_brand_fallback or already_generic:
             unresolved.append((store_url, product_name, brand_name, already_generic, description_snippet or ""))
+        elif not franchise_verified and current_tags:
+            # A genuine architectural blind spot: this tag came from the naive
+            # title-tokenizer or URL-slug fallback (parsers/base.py) or a
+            # lenient collection-link guess (shopify_base.py), so it looks
+            # "confident" (a specific-looking name, not the brand or generic
+            # catch-all) but was NEVER independently checked against Wikidata.
+            # That's how a character name like "Gabimaru" could sit there
+            # unnoticed instead of the real franchise. Route it through the
+            # same verification machinery as brand-fallback items.
+            unverified.append((store_url, product_name, brand_name, description_snippet or "", current_tags[0]))
 
-    print(f"Found {len(unresolved)} unresolved product(s). Budget: {budget} new Wikidata check(s) this run.")
+    print(f"Found {len(unresolved)} unresolved product(s) and {len(unverified)} unverified tag(s). "
+          f"Budget: {budget} new Wikidata check(s) this run.")
 
     llm_ok = llm_is_available()
     print(f"LLM-assisted classification: {'ENABLED' if llm_ok else 'disabled (Ollama not reachable, or ENABLE_LLM_TAGGING=false)'}")
@@ -235,13 +263,19 @@ def run(budget=DEFAULT_BUDGET):
     generic_tagged_new = 0
     still_generic = 0
     deferred = 0
+    verified_confirmed = 0
+    verified_unconfirmed = 0
     breaker_tripped = False
 
-    for store_url, product_name, brand_name, already_generic, description_snippet in unresolved:
+    def _breaker_check():
+        nonlocal breaker_tripped
         if state["tracker"]["slow_calls"] >= CIRCUIT_BREAKER_LIMIT and not breaker_tripped:
             breaker_tripped = True
             print("  ! Wikidata appears to be rate-limiting this session. "
                   "Pausing further live checks; remaining items will retry next run.")
+
+    for store_url, product_name, brand_name, already_generic, description_snippet in unresolved:
+        _breaker_check()
 
         resolved_name, resolved_phrase, fully_evaluated = _resolve_product(conn, product_name, state)
 
@@ -264,7 +298,7 @@ def run(budget=DEFAULT_BUDGET):
                 (resolved_phrase, resolved_name)
             )
             conn.execute(
-                "UPDATE products SET franchise_tags = ? WHERE store_url = ?",
+                "UPDATE products SET franchise_tags = ?, franchise_verified = 1 WHERE store_url = ?",
                 (json.dumps([resolved_name]), store_url)
             )
             retagged += 1
@@ -277,7 +311,7 @@ def run(budget=DEFAULT_BUDGET):
             # Confirmed: no specific franchise. Ensure it's classified (no-op if already tagged).
             if not already_generic:
                 conn.execute(
-                    "UPDATE products SET franchise_tags = ? WHERE store_url = ?",
+                    "UPDATE products SET franchise_tags = ?, franchise_verified = 1 WHERE store_url = ?",
                     (json.dumps([GENERIC_MERCH_TAG]), store_url)
                 )
                 generic_tagged_new += 1
@@ -304,6 +338,68 @@ def run(budget=DEFAULT_BUDGET):
         else:
             deferred += 1
 
+    for store_url, product_name, brand_name, description_snippet, current_tag in unverified:
+        _breaker_check()
+
+        # First, try to confirm the EXISTING tag directly against Wikidata —
+        # cheap (cached) and it might already be exactly right, just never
+        # checked. Only if that fails do we fall back to re-deriving
+        # candidates from the title from scratch.
+        resolved_name, fully_evaluated = _verify_phrase_ex(conn, current_tag, state)
+        resolved_phrase = current_tag.lower() if resolved_name else None
+        if not resolved_name and fully_evaluated:
+            resolved_name, resolved_phrase, fully_evaluated = _resolve_product(conn, product_name, state)
+
+        used_llm = False
+        if not resolved_name and fully_evaluated and llm_ok:
+            description_for_llm = description_snippet or _fetch_page_description(store_url)
+            suggestion = suggest_franchise(product_name, brand_name, description_for_llm)
+            if suggestion:
+                confirmed = _verify_phrase(conn, suggestion, state)
+                if confirmed and confirmed not in IGNORE_NAMES:
+                    resolved_name, resolved_phrase = confirmed, suggestion.lower()
+                    used_llm = True
+
+        if resolved_name and resolved_name not in IGNORE_NAMES:
+            conn.execute(
+                "INSERT OR IGNORE INTO franchise_mappings (keyword, franchise_name) VALUES (?, ?)",
+                (resolved_phrase, resolved_name)
+            )
+            conn.execute(
+                "UPDATE products SET franchise_tags = ?, franchise_verified = 1 WHERE store_url = ?",
+                (json.dumps([resolved_name]), store_url)
+            )
+            verified_confirmed += 1
+            if used_llm:
+                llm_assisted += 1
+            print(f"  verified: '{current_tag}' -> {resolved_name}  ({product_name})")
+        elif fully_evaluated:
+            # Wikidata couldn't confirm anything - don't destroy a possibly-
+            # legitimate niche/indie tag by demoting it to Gamer Culture.
+            # Mark it processed (so the budget isn't spent re-checking it every
+            # run) and surface it for a human via the review queue instead.
+            conn.execute(
+                "UPDATE products SET franchise_verified = 1 WHERE store_url = ?",
+                (store_url,)
+            )
+            verified_unconfirmed += 1
+            existing = conn.execute(
+                "SELECT occurrences FROM franchise_review_queue WHERE candidate = ?",
+                (current_tag.lower(),)
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    "UPDATE franchise_review_queue SET occurrences = occurrences + 1 WHERE candidate = ?",
+                    (current_tag.lower(),)
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO franchise_review_queue (candidate, brand_name, sample_product) VALUES (?, ?, ?)",
+                    (current_tag.lower(), brand_name, product_name)
+                )
+        else:
+            deferred += 1
+
     conn.commit()
     print(f"\nDiscovery done. Performed {state['checked']} live Wikidata check(s) this run.")
     print(f"Auto-retagged {retagged} product(s) with a confirmed franchise.")
@@ -313,6 +409,11 @@ def run(budget=DEFAULT_BUDGET):
         print(f"Newly classified {generic_tagged_new} product(s) as '{GENERIC_MERCH_TAG}'.")
     if still_generic:
         print(f"{still_generic} product(s) remain correctly classified as '{GENERIC_MERCH_TAG}' (no change needed).")
+    if verified_confirmed:
+        print(f"Confirmed and upgraded {verified_confirmed} previously-unverified tag(s).")
+    if verified_unconfirmed:
+        print(f"{verified_unconfirmed} previously-unverified tag(s) left as-is (unconfirmed either way) "
+              f"and logged to the review queue.")
     if deferred:
         print(f"{deferred} product(s) deferred (budget/rate-limit reached) — will be retried on the next run.")
     conn.close()

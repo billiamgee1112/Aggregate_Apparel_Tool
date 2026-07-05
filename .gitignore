@@ -1,6 +1,12 @@
 # Ignore virtual environment
 venv/
 
+# Ignore Node tooling (only used locally to build static/css/tailwind.css -
+# the compiled output IS committed/shipped, since the cloud VPS has no Node
+# install and shouldn't need one; rerun `npm run build:css` after editing
+# templates, then commit the updated static/css/tailwind.css)
+node_modules/
+
 # Ignore environment variables
 .env
 

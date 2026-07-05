@@ -20,6 +20,22 @@ COMMON_WORD_BLOCKLIST = {
     "spy", "pyro", "reaper", "echo", "nova", "wizard", "queen", "player",
     "hero", "chaos", "beast", "comics", "granny", "meat", "sugar", "pure",
     "peak", "glitch", "may", "gen", "bill", "gears", "level", "world", "star",
+    # Added 2026-07-04 via audit_franchise_keywords.py (LLM audit), filtered
+    # against real DB impact first (see _debug_keyword_impact.py check) to
+    # avoid removing keywords that legitimately-tagged products depend on
+    # with no redundant fallback text. NOTE: deliberately did NOT include
+    # "aperture" - Glitch Gear's real "Aperture Laboratories" Portal product
+    # line depends on it with no other matching signal in the title.
+    "ac1", "ds1", "fm1", "mh1", "mcu", "s.t.a.r.s.", "-no13-", "administrator",
+    "traveler", "citadel", "normandy", "forerunner", "bastion", "riverside",
+    "biohazard", "lol", "2b", "controller", "engineer", "soldier", "dwarf",
+    "transistor", "justice", "valhalla", "testament",
+    # Added 2026-07-05: surfaced by the new franchise_verified re-check pass
+    # (franchise_discovery.py verifying previously-unverified naive-tokenizer
+    # tags) confirming "Mystery" against the real but irrelevant "Mystery
+    # Tower" Wikidata entity for a generic "Mystery T-Shirt Bundle" grab-bag
+    # product - the same class of collision as "Pure"/"PEAK" above.
+    "mystery",
 }
 
 def load_dynamic_mappings(db_path: str = DB_PATH) -> dict:
@@ -53,8 +69,16 @@ def clean_franchise_tag(product_name: str, store_url: str, fallback: str) -> str
     
     # Check our dynamic mappings table
     mappings = load_dynamic_mappings()
-    
-    for key, value in mappings.items():
+
+    # IMPORTANT: check longer/more specific keywords first. Dict iteration
+    # order is arbitrary (DB insertion order), so without this a short,
+    # unrelated keyword elsewhere in the haystack (e.g. a character name from
+    # an old/stale mapping, or matching part of the store URL) could win over
+    # the correct, more specific match purely by chance of ordering. Bug
+    # found 2026-07-04: "winston" -> stale "Overwatch" beat "overwatch" ->
+    # "Overwatch 2" simply because it happened to be checked first.
+    for key in sorted(mappings.keys(), key=len, reverse=True):
+        value = mappings[key]
         # Match as word boundaries, or regular substring if checking trailing hyphens
         pattern = rf"\b{re.escape(key)}\b" if not key.endswith("-") else rf"{re.escape(key)}"
         if re.search(pattern, haystack):

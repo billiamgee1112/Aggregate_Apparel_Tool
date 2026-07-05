@@ -229,7 +229,7 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
                             continue
 
                         scraped_tag = metadata.get("scraped_tag", "") if isinstance(metadata, dict) else ""
-                        franchise_tag = parser.extract_franchise_tag(
+                        franchise_tag, franchise_verified = parser.extract_franchise_tag(
                             str(s_url), 
                             product_name=name, 
                             scraped_tag=scraped_tag, 
@@ -244,6 +244,7 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
                                 image_url=img_url,
                                 brand_name=brand_name,
                                 franchise_tags=[franchise_tag],
+                                franchise_verified=franchise_verified,
                                 category=parser.deduce_category(name, str(s_url)),
                                 description_snippet=metadata.get("description_snippet", "") if isinstance(metadata, dict) else ""
                             )
@@ -330,7 +331,7 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
                                 continue
 
                             scraped_tag = metadata.get("scraped_tag", "") if isinstance(metadata, dict) else ""
-                            franchise_tag = parser.extract_franchise_tag(
+                            franchise_tag, franchise_verified = parser.extract_franchise_tag(
                                 str(s_url), 
                                 product_name=name, 
                                 scraped_tag=scraped_tag, 
@@ -345,6 +346,7 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
                                 image_url=img_url,
                                 brand_name=brand_name,
                                 franchise_tags=[franchise_tag],
+                                franchise_verified=franchise_verified,
                                 category=parser.deduce_category(name, str(s_url)),
                                 description_snippet=metadata.get("description_snippet", "") if isinstance(metadata, dict) else ""
                             )
@@ -401,12 +403,17 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
                                 continue
 
                             scraped_tag = metadata.get("scraped_tag", "") if isinstance(metadata, dict) else ""
-                            franchise_tag = parser.extract_franchise_tag(
+                            # Shopify stores already determine their own verified status
+                            # internally (parsers/shopify_base.py); extract_franchise_tag is
+                            # only used here for keyword-mapping string normalization, so its
+                            # own verified flag is ignored in favor of the parser's metadata.
+                            franchise_tag, _ = parser.extract_franchise_tag(
                                 str(s_url),
                                 product_name=name,
                                 scraped_tag=scraped_tag,
                                 fallback=brand_name
                             )
+                            franchise_verified = metadata.get("franchise_verified", True) if isinstance(metadata, dict) else True
 
                             item = GamingClothingItem(
                                 product_name=name,
@@ -416,6 +423,7 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
                                 image_url=img_url,
                                 brand_name=brand_name,
                                 franchise_tags=[franchise_tag],
+                                franchise_verified=franchise_verified,
                                 category=parser.deduce_category(name, str(s_url)),
                                 description_snippet=metadata.get("description_snippet", "") if isinstance(metadata, dict) else ""
                             )

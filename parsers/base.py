@@ -82,29 +82,42 @@ class BaseParser(ABC):
         return product_name
 
     @staticmethod
-    def extract_franchise_tag(store_url: str, product_name: str = "", scraped_tag: str = "", fallback: str = "Geek Apparel") -> str:
-        """Deduces a clean franchise name using HTML markers, database mappings, and smart NLP tokenizing."""
+    def extract_franchise_tag(store_url: str, product_name: str = "", scraped_tag: str = "", fallback: str = "Geek Apparel") -> tuple:
+        """Deduces a clean franchise name using HTML markers, database mappings, and smart NLP tokenizing.
+
+        Returns (tag: str, verified: bool). "verified" distinguishes trustworthy
+        signals (the store's own scraped label, or a match against our curated/
+        Wikidata-backed keyword table) from the naive title-tokenizer/URL-slug
+        guesses, which are NEVER independently checked against anything and can
+        silently produce confident-looking wrong tags (e.g. grabbing a
+        character's name instead of the real franchise). franchise_discovery.py
+        uses this flag to know which tags still need a Wikidata verification
+        pass, in addition to its existing brand_name-fallback/Gamer Culture checks.
+        """
         # 1. Prioritize DOM Tags extracted directly from the HTML product card!
         if scraped_tag:
             scraped_tag_clean = scraped_tag.replace("Game Art", "").strip()
             # Double-check it against dynamic custom mappings in the database (e.g. mapping abbreviation: "loz" -> "The Legend of Zelda")
             matched_tag = clean_franchise_tag(scraped_tag_clean, store_url, None)
             if matched_tag:
-                return matched_tag
-            return scraped_tag_clean
+                return matched_tag, True
+            # The store's own explicit label (e.g. a bare <h3> game/franchise
+            # name) is first-party structured data, not a guess - trusted.
+            return scraped_tag_clean, True
 
         # 2. Check explicitly against mapping rules table database-side
         matched_tag = clean_franchise_tag(product_name, store_url, None)
         if matched_tag:
-            return matched_tag
+            return matched_tag, True
             
         # 3. Apply the Smart Title Tokenizer on the Product Name
         deduced_tag = BaseParser.deduce_franchise_from_title(product_name)
         if deduced_tag and deduced_tag != product_name:
             matched_deduced = clean_franchise_tag(deduced_tag, store_url, None)
             if matched_deduced:
-                return matched_deduced
-            return deduced_tag
+                return matched_deduced, True
+            # UNVERIFIED: a naive leading-word guess with no keyword backing.
+            return deduced_tag, False
 
         # 4. ADVANCED SYSTEM FALLBACK: Use URL Slug Parsing
         # This catches items like "Fractured" where URL is "expedition-33-shirt", separating game names automatically!
@@ -128,10 +141,11 @@ class BaseParser(ABC):
                     # Double-check if the cleaned slug segment matches database mapping dictionary
                     matched_slug = clean_franchise_tag(final_candidate, store_url, None)
                     if matched_slug:
-                        return matched_slug
-                    return final_candidate
+                        return matched_slug, True
+                    # UNVERIFIED: a naive URL-slug guess with no keyword backing.
+                    return final_candidate, False
 
-        return fallback
+        return fallback, True
 
     @staticmethod
     def deduce_category(product_name: str, store_url: str) -> str:

@@ -293,6 +293,60 @@ DEFAULT_RULESET = [
     ("hades", "Hades"),
     ("among us", "Among Us"),
     ("fall guys", "Fall Guys"),
+
+    # Added 2026-07-04: these franchise names were completely absent from the
+    # ruleset, so clean_franchise_tag() had zero chance of matching them and
+    # Artsholic/Insert Coin products fell through to the naive leading-word
+    # title tokenizer, which grabbed the character's own name (e.g. "Gabimaru")
+    # instead of the real franchise mentioned later in the SEO-stuffed title
+    # (e.g. "Gabimaru Shorts, Hell's Paradise Shorts, ..."). Adding the real
+    # franchise name (and known character aliases) lets the keyword-mapping
+    # step win before the tokenizer fallback ever runs.
+    ("hell's paradise", "Hell's Paradise"),
+    ("hells paradise", "Hell's Paradise"),
+    ("gabimaru", "Hell's Paradise"),
+    ("bleach", "Bleach"),
+    ("ichigo kurosaki", "Bleach"),
+    ("my hero academia", "My Hero Academia"),
+    ("mha", "My Hero Academia"),
+    ("katsuki bakugo", "My Hero Academia"),
+    ("king of fighters", "King of Fighters"),
+    ("kyo kusanagi", "King of Fighters"),
+    ("mai shiranui", "King of Fighters"),
+    ("demon slayer", "Demon Slayer"),
+    ("mitsuri kanroji", "Demon Slayer"),
+    ("darkstalkers", "Darkstalkers"),
+    ("morrigan aensland", "Darkstalkers"),
+    ("jujutsu kaisen", "Jujutsu Kaisen"),
+    ("ryomen sukuna", "Jujutsu Kaisen"),
+    ("sukuna", "Jujutsu Kaisen"),
+    ("suguru geto", "Jujutsu Kaisen"),
+    ("toji fushiguro", "Jujutsu Kaisen"),
+    ("akira", "Akira"),
+    ("tetsuo shima", "Akira"),
+
+    # Added 2026-07-04: normalizing duplicate franchise name variants
+    # (different casing/roman-numeral/edition-suffix spellings of the same
+    # game were ending up as separate tags) into one canonical form each.
+    ("slay the spire", "Slay the Spire"),
+    ("helldivers 2", "Helldivers 2"),
+    ("helldivers ii", "Helldivers 2"),
+    ("oneshot", "OneShot"),
+    ("the last of us", "The Last of Us"),
+    ("overwatch", "Overwatch 2"),
+
+    # Added 2026-07-04: one-off manual corrections for items with no
+    # systemic fix available. "Dragon Ramen" (Artsholic) mentions no
+    # franchise anywhere in its scraped text at all, so this is a manual
+    # tag based on external knowledge it's a Dragon Ball reference - without
+    # this keyword, a re-scrape would keep reverting to the naive
+    # title-tokenizer's wrong guess. "Pennywise" (IT the movie/book) isn't a
+    # game franchise; "IT" itself is far too short/dangerous to ever use as
+    # a keyword, so it's redirected straight to the generic catch-all here
+    # instead, which a bare DB update can't do since it gets overwritten by
+    # every re-scrape without a keyword backing it.
+    ("dragon ramen", "Dragon Ball"),
+    ("pennywise", "Gamer Culture"),
 ]
 
 def init_db():
@@ -326,7 +380,8 @@ def init_db():
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             is_active INTEGER DEFAULT 1,
             category TEXT NOT NULL DEFAULT 'other',
-            description_snippet TEXT
+            description_snippet TEXT,
+            franchise_verified INTEGER DEFAULT 1
         )
     """)
 
@@ -338,6 +393,16 @@ def init_db():
     existing_columns = {row[1] for row in cursor.execute("PRAGMA table_info(products)").fetchall()}
     if "description_snippet" not in existing_columns:
         cursor.execute("ALTER TABLE products ADD COLUMN description_snippet TEXT")
+
+    # Migration: add franchise_verified to any pre-existing products table.
+    # DEFAULT 1 is deliberate: existing rows are treated as already-verified
+    # so they aren't all suddenly dumped into franchise_discovery.py's
+    # Wikidata-verification queue at once (which is budget-limited per run).
+    # Only rows produced going forward by the naive tokenizer/URL-slug
+    # fallbacks get accurately marked 0, and are picked up gradually.
+    if "franchise_verified" not in existing_columns:
+        cursor.execute("ALTER TABLE products ADD COLUMN franchise_verified INTEGER DEFAULT 1")
+
     
     # 2. Relational Price History Table
     cursor.execute("""
@@ -425,8 +490,8 @@ def save_products_to_db(products: list[GamingClothingItem]):
             
         cursor.execute("""
             INSERT INTO products (
-                store_url, product_name, current_price, original_price, image_url, brand_name, franchise_tags, is_active, category, description_snippet, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, CURRENT_TIMESTAMP)
+                store_url, product_name, current_price, original_price, image_url, brand_name, franchise_tags, is_active, category, description_snippet, franchise_verified, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(store_url) DO UPDATE SET
                 product_name=excluded.product_name,
                 current_price=excluded.current_price,
@@ -436,6 +501,7 @@ def save_products_to_db(products: list[GamingClothingItem]):
                 franchise_tags=excluded.franchise_tags,
                 category=excluded.category,
                 description_snippet=excluded.description_snippet,
+                franchise_verified=excluded.franchise_verified,
                 is_active=1,
                 updated_at=CURRENT_TIMESTAMP
         """, (
@@ -447,7 +513,8 @@ def save_products_to_db(products: list[GamingClothingItem]):
             product.brand_name,
             json.dumps(product.franchise_tags),
             product.category,
-            product.description_snippet
+            product.description_snippet,
+            1 if product.franchise_verified else 0
         ))
         
         # Log a price point into price progression history on changes

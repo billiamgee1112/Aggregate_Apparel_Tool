@@ -1,0 +1,29 @@
+{
+  "name": "aggregate_apparel_tool",
+  "version": "1.0.0",
+  "description": "A robust, asynchronous multi-store web scraping pipeline built with Python, Playwright, and Pydantic. It extracts structured product data from various e-commerce apparel sites into a relational SQLite database while filtering out non-clothing accessories.",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "build:css": "tailwindcss -i ./src/input.css -o ./static/css/tailwind.css --minify",
+    "watch:css": "tailwindcss -i ./src/input.css -o ./static/css/tailwind.css --watch"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/billiamgee1112/Aggregate_Apparel_Tool.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/billiamgee1112/Aggregate_Apparel_Tool/issues"
+  },
+  "homepage": "https://github.com/billiamgee1112/Aggregate_Apparel_Tool#readme",
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.2",
+    "tailwindcss": "^4.3.2"
+  }
+}

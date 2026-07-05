@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  html, body { margin: 0; padding: 0; }
+  .card {
+    width: 1200px;
+    height: 630px;
+    background: radial-gradient(circle at 20% 20%, #1f2937 0%, #030712 65%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-family: -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+    position: relative;
+    overflow: hidden;
+  }
+  .grid-overlay {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(245,158,11,0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(245,158,11,0.06) 1px, transparent 1px);
+    background-size: 48px 48px;
+  }
+  .badge {
+    width: 110px;
+    height: 110px;
+    border-radius: 28px;
+    background: #F59E0B;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 64px;
+    margin-bottom: 28px;
+    box-shadow: 0 20px 60px rgba(245,158,11,0.35);
+  }
+  .logo {
+    font-size: 76px;
+    font-weight: 800;
+    color: #ffffff;
+    letter-spacing: -0.02em;
+  }
+  .logo .accent { color: #F59E0B; }
+  .tagline {
+    margin-top: 18px;
+    font-size: 28px;
+    font-weight: 600;
+    color: #9CA3AF;
+    letter-spacing: 0.02em;
+  }
+  .footerline {
+    position: absolute;
+    bottom: 40px;
+    font-size: 20px;
+    color: #4B5563;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="grid-overlay"></div>
+    <div class="badge">🎮</div>
+    <div class="logo">Gaming<span class="accent">Apparel</span>.gg</div>
+    <div class="tagline">The Gaming Wardrobe Search Engine</div>
+    <div class="footerline">Halo · Zelda · Fallout · Mass Effect · Yakuza · &amp; More</div>
+  </div>
+</body>
+</html>

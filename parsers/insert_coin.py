@@ -17,7 +17,10 @@ class InsertCoinParser(BaseParser):
     # be mistaken for a franchise/game label
     _BADGE_STOPWORDS = {
         "new", "sale", "sold out", "preorder", "available for preorder",
-        "back in stock", "low stock", "coming soon"
+        "back in stock", "low stock", "coming soon",
+        # SpecialEffect/GameBlast/OSD are real charity gaming-fundraiser event
+        # tie-ins Insert Coin sometimes labels products with, not franchises.
+        "specialeffect", "special effect", "gameblast", "osd"
     }
 
     def _extract_game_label(self, product_el: BeautifulSoup, product_name: str) -> str:
@@ -131,8 +134,17 @@ class InsertCoinParser(BaseParser):
             raw_image_url = img_el.get("src") or img_el.get("data-src") or ""
         image_url = urljoin(base_url, raw_image_url) if raw_image_url else "https://example.com/placeholder.jpg"
 
-        # 5. Extract Dynamic Store Game Tag (the store's own franchise categorization)
-        scraped_tag = self._extract_game_label(product_el, product_name)
+        # 5. Extract Dynamic Store Game Tag (the store's own franchise categorization).
+        # Mystery/randomized bundle products (e.g. "Random Hoodie", "Random Tee"
+        # under /bundles/) have no single real franchise by design - skip label
+        # extraction entirely for these so they correctly fall through to the
+        # brand-name/Wikidata-discovery pipeline (usually landing on "Gamer
+        # Culture") instead of picking up unrelated promotional h3 text like
+        # "Selected By Our Team".
+        if "/bundles/" in store_url:
+            scraped_tag = ""
+        else:
+            scraped_tag = self._extract_game_label(product_el, product_name)
 
         metadata = {"scraped_tag": scraped_tag}
 

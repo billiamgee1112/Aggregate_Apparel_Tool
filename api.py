@@ -2,10 +2,12 @@
 import sqlite3
 import json
 import os
+from collections import Counter
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import Response, PlainTextResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from typing import Optional, List
 from pydantic import BaseModel
@@ -79,6 +81,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Serve static assets (favicon, compiled Tailwind CSS, OG images) from /static.
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
+
 def build_pagination(path: str, filters: dict, sort: str, page: int, total_count: int) -> dict:
     """Computes pagination state, link bases, and a canonical URL for SEO."""
     total_pages = max(1, ceil(total_count / PAGE_SIZE))
@@ -125,7 +131,6 @@ def build_pagination(path: str, filters: dict, sort: str, page: int, total_count
     }
 
 # Find templates relative to the current file
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
 def get_db_connection():
@@ -139,19 +144,28 @@ def fetch_common_stats(conn):
     cursor.execute("SELECT brand_name, COUNT(*) FROM products WHERE is_active = 1 GROUP BY brand_name")
     brand_stats = {row[0]: row[1] for row in cursor.fetchall()}
     
-    # Fetch every distinct franchise tag (excluding raw brand-name fallbacks)
+    # Count how many active products carry each franchise tag (excluding raw
+    # brand-name fallbacks and the "Gamer Culture" catch-all, which isn't a
+    # real franchise so it shouldn't dominate a "popular franchises" ranking).
     cursor.execute("SELECT franchise_tags FROM products WHERE is_active = 1")
-    unique_tags = set()
+    excluded_tags = {"Geek Apparel", "Insert Coin", "Artsholic", "Fangamer", "Glitch Gear", "Eightysixed", "Xbox Game Studios", "Bethesda", "Blizzard", "Gamer Culture"}
+    tag_counts = Counter()
     for row in cursor.fetchall():
         try:
             for tag in json.loads(row[0]):
-                if tag and tag not in ["Geek Apparel", "Insert Coin", "Artsholic", "Fangamer", "Glitch Gear", "Eightysixed", "Xbox Game Studios", "Bethesda", "Blizzard"]:
-                    unique_tags.add(tag)
+                if tag and tag not in excluded_tags:
+                    tag_counts[tag] += 1
         except Exception:
             continue
 
-    all_franchises = sorted(unique_tags)          # Full A-Z list (for the "Game Collections" directory)
-    popular_franchises = all_franchises[:18]      # Short slice for sidebar quick-links
+    all_franchises = sorted(tag_counts.keys())    # Full A-Z list (for the "Game Collections" directory)
+    # Popular = ranked by actual catalog size (product count) rather than
+    # alphabetical order, since a franchise with more listed products is a
+    # reasonable proxy for real popularity. Ties broken alphabetically for a
+    # stable, deterministic order across requests.
+    popular_franchises = [
+        name for name, _ in sorted(tag_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:18]
+    ]
     return brand_stats, popular_franchises, all_franchises
 
 def _build_fts_query(raw: str) -> str:
@@ -294,6 +308,24 @@ def home_index(
             "current_franchise": franchise,
             "current_sort": sort,
             "pagination": pagination
+        }
+    )
+
+
+@app.get("/about")
+def about_page(request: Request):
+    """Static page explaining the site's purpose. Still needs all_franchises
+    so the shared header's Game Collections dropdown renders correctly."""
+    conn = get_db_connection()
+    _, _, all_franchises = fetch_common_stats(conn)
+    conn.close()
+
+    return templates.TemplateResponse(
+        request=request,
+        name="about.html",
+        context={
+            "base_domain": BASE_DOMAIN,
+            "all_franchises": all_franchises
         }
     )
 
@@ -530,3 +562,38 @@ def generate_sitemap():
 </urlset>"""
 
     return Response(content=xml_content, media_type="application/xml")
+
+
+@app.get("/robots.txt")
+def generate_robots_txt():
+    """Points crawlers at the dynamic sitemap and allows full indexing."""
+    lines = [
+        "User-agent: *",
+        "Allow: /",
+        f"Sitemap: {BASE_DOMAIN}/sitemap.xml",
+    ]
+    return PlainTextResponse("\n".join(lines))
+
+
+# ==========================================
+# HEALTH CHECK (UPTIME MONITORING)
+# ==========================================
+
+@app.get("/healthz")
+def healthz():
+    """Lightweight liveness/readiness check for uptime monitors and the cloud
+    host's load balancer. Verifies the SQLite database is actually reachable
+    (not just that the process is running) without doing any heavy work."""
+    try:
+        conn = get_db_connection()
+        conn.execute("SELECT 1").fetchone()
+        conn.close()
+        db_ok = True
+    except Exception:
+        db_ok = False
+
+    status_code = 200 if db_ok else 503
+    return JSONResponse(
+        status_code=status_code,
+        content={"status": "ok" if db_ok else "error", "database": "reachable" if db_ok else "unreachable"}
+    )

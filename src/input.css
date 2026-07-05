@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+@source "../templates/**/*.html";
+
+@theme {
+  --color-primary: #111827;
+  --color-accent: #F59E0B;
+}
+
+/* Smooth, instant page load experience */
+[x-cloak] { display: none !important; }
