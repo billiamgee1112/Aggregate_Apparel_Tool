@@ -103,6 +103,17 @@ def build_pagination(path: str, filters: dict, sort: str, page: int, total_count
     sort_qs = urlencode(active_filters)
     sort_base_url = f"{path}?{sort_qs}&" if sort_qs else f"{path}?"
 
+    # Base for category links (keeps sort + all OTHER filters, drops category + page)
+    # so switching category doesn't lose the current sort/brand/franchise/search
+    # selection, and vice versa. Two variants: one to append "category=X" to
+    # (trailing separator), one clean (no separator) for the "All Categories" reset.
+    non_category_filters = {k: v for k, v in active_filters.items() if k != "category"}
+    if sort:
+        non_category_filters["sort"] = sort
+    cat_qs = urlencode(non_category_filters)
+    category_base_url = f"{path}?{cat_qs}&" if cat_qs else f"{path}?"
+    category_reset_url = f"{path}?{cat_qs}" if cat_qs else path
+
     # Canonical URL: content-defining filters + page, but NOT sort (dedupes sort variants)
     canon_params = dict(active_filters)
     if page > 1:
@@ -125,10 +136,19 @@ def build_pagination(path: str, filters: dict, sort: str, page: int, total_count
         "page_range": list(range(start, end + 1)),
         "base_url": base_url,
         "sort_base_url": sort_base_url,
+        "category_base_url": category_base_url,
+        "category_reset_url": category_reset_url,
         "canonical": canonical,
         "start_index": (page - 1) * PAGE_SIZE + 1 if total_count else 0,
         "end_index": min(page * PAGE_SIZE, total_count),
     }
+
+def _preserved_secondary_qs(category: Optional[str], sort: Optional[str]) -> str:
+    """Builds a '?category=X&sort=Y' suffix (or '' if neither is set), used
+    when switching the primary brand/franchise facet via a sidebar link so
+    the secondary category/sort facets carry over instead of being reset."""
+    parts = {k: v for k, v in {"category": category, "sort": sort}.items() if v}
+    return f"?{urlencode(parts)}" if parts else ""
 
 # Find templates relative to the current file
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
@@ -307,7 +327,8 @@ def home_index(
             "current_category": category,
             "current_franchise": franchise,
             "current_sort": sort,
-            "pagination": pagination
+            "pagination": pagination,
+            "preserved_qs": _preserved_secondary_qs(category, sort)
         }
     )
 
@@ -331,7 +352,7 @@ def about_page(request: Request):
 
 
 @app.get("/franchises/{franchise_slug}")
-def franchise_landing_ssr(request: Request, franchise_slug: str, sort: Optional[str] = Query("newest"), page: int = Query(1)):
+def franchise_landing_ssr(request: Request, franchise_slug: str, category: Optional[str] = Query(None), sort: Optional[str] = Query("newest"), page: int = Query(1)):
     """URL Canonical Route targeting dedicated franchises like /franchises/halo or /franchises/fallout."""
     # Deduce slug to tag format: "final-fantasy" -> "final fantasy"
     cleaned_slug = franchise_slug.replace("-", " ").strip()
@@ -341,17 +362,20 @@ def franchise_landing_ssr(request: Request, franchise_slug: str, sort: Optional[
     cursor = conn.cursor()
 
     where = " WHERE is_active = 1 AND LOWER(franchise_tags) LIKE ?"
-    like_param = (f"%{cleaned_slug.lower()}%",)
+    params = [f"%{cleaned_slug.lower()}%"]
+    if category:
+        where += " AND LOWER(category) = ?"
+        params.append(category.lower())
     where += _discount_filter_clause(sort)
 
-    total_count = cursor.execute("SELECT COUNT(*) FROM products" + where, like_param).fetchone()[0]
+    total_count = cursor.execute("SELECT COUNT(*) FROM products" + where, tuple(params)).fetchone()[0]
 
-    pagination = build_pagination(f"/franchises/{franchise_slug}", {}, sort, page, total_count)
+    pagination = build_pagination(f"/franchises/{franchise_slug}", {"category": category}, sort, page, total_count)
     offset = (pagination["current_page"] - 1) * PAGE_SIZE
 
     cursor.execute(
         "SELECT * FROM products" + where + _order_clause(sort) + " LIMIT ? OFFSET ?",
-        like_param + (PAGE_SIZE, offset)
+        tuple(params) + (PAGE_SIZE, offset)
     )
     rows = cursor.fetchall()
     conn.close()
@@ -379,33 +403,37 @@ def franchise_landing_ssr(request: Request, franchise_slug: str, sort: Optional[
             "popular_franchises": popular_franchises,
             "all_franchises": all_franchises,
             "current_brand": None,
-            "current_category": None,
+            "current_category": category,
             "current_franchise": matched_title,
             "current_sort": sort,
-            "pagination": pagination
+            "pagination": pagination,
+            "preserved_qs": _preserved_secondary_qs(category, sort)
         }
     )
 
 
 @app.get("/brands/{brand_slug}")
-def brand_landing_ssr(request: Request, brand_slug: str, sort: Optional[str] = Query("newest"), page: int = Query(1)):
+def brand_landing_ssr(request: Request, brand_slug: str, category: Optional[str] = Query(None), sort: Optional[str] = Query("newest"), page: int = Query(1)):
     """URL Canonical Route targeting vendor profiles like /brands/bethesda or /brands/blizzard."""
     conn = get_db_connection()
     brand_stats, popular_franchises, all_franchises = fetch_common_stats(conn)
     cursor = conn.cursor()
 
     where = " WHERE is_active = 1 AND LOWER(brand_name) = ?"
-    brand_param = (brand_slug.strip().lower(),)
+    params = [brand_slug.strip().lower()]
+    if category:
+        where += " AND LOWER(category) = ?"
+        params.append(category.lower())
     where += _discount_filter_clause(sort)
 
-    total_count = cursor.execute("SELECT COUNT(*) FROM products" + where, brand_param).fetchone()[0]
+    total_count = cursor.execute("SELECT COUNT(*) FROM products" + where, tuple(params)).fetchone()[0]
 
-    pagination = build_pagination(f"/brands/{brand_slug}", {}, sort, page, total_count)
+    pagination = build_pagination(f"/brands/{brand_slug}", {"category": category}, sort, page, total_count)
     offset = (pagination["current_page"] - 1) * PAGE_SIZE
 
     cursor.execute(
         "SELECT * FROM products" + where + _order_clause(sort) + " LIMIT ? OFFSET ?",
-        brand_param + (PAGE_SIZE, offset)
+        tuple(params) + (PAGE_SIZE, offset)
     )
     rows = cursor.fetchall()
 
@@ -427,10 +455,11 @@ def brand_landing_ssr(request: Request, brand_slug: str, sort: Optional[str] = Q
             "popular_franchises": popular_franchises,
             "all_franchises": all_franchises,
             "current_brand": matched_brand,
-            "current_category": None,
+            "current_category": category,
             "current_franchise": None,
             "current_sort": sort,
-            "pagination": pagination
+            "pagination": pagination,
+            "preserved_qs": _preserved_secondary_qs(category, sort)
         }
     )
 
@@ -440,7 +469,7 @@ def brand_landing_ssr(request: Request, brand_slug: str, sort: Optional[str] = Q
 # ==========================================
 
 @app.get("/search")
-def search_ssr(request: Request, q: Optional[str] = Query(None), sort: Optional[str] = Query("newest"), page: int = Query(1)):
+def search_ssr(request: Request, q: Optional[str] = Query(None), category: Optional[str] = Query(None), sort: Optional[str] = Query("newest"), page: int = Query(1)):
     """Full-text search across product names, brands, franchises, and categories via FTS5,
     with franchise-alias query expansion (e.g. 'bonfire' -> Dark Souls)."""
     conn = get_db_connection()
@@ -449,25 +478,28 @@ def search_ssr(request: Request, q: Optional[str] = Query(None), sort: Optional[
 
     match_query = _build_search_query(conn, q or "")
     products = []
-    pagination = build_pagination("/search", {"q": q}, sort, page, 0)
+    pagination = build_pagination("/search", {"q": q, "category": category}, sort, page, 0)
     discount_filter = _discount_filter_clause(sort, prefix="p.")
+    category_filter = " AND LOWER(p.category) = ?" if category else ""
 
     if match_query:
+        category_params = (category.lower(),) if category else ()
+
         total_count = cursor.execute(
             "SELECT COUNT(*) FROM products_fts "
             "JOIN products p ON p.rowid = products_fts.rowid "
-            "WHERE products_fts MATCH ? AND p.is_active = 1" + discount_filter,
-            (match_query,)
+            "WHERE products_fts MATCH ? AND p.is_active = 1" + category_filter + discount_filter,
+            (match_query,) + category_params
         ).fetchone()[0]
 
-        pagination = build_pagination("/search", {"q": q}, sort, page, total_count)
+        pagination = build_pagination("/search", {"q": q, "category": category}, sort, page, total_count)
         offset = (pagination["current_page"] - 1) * PAGE_SIZE
 
         cursor.execute(
             "SELECT p.* FROM products_fts "
             "JOIN products p ON p.rowid = products_fts.rowid "
-            "WHERE products_fts MATCH ? AND p.is_active = 1" + discount_filter + _order_clause(sort) + " LIMIT ? OFFSET ?",
-            (match_query, PAGE_SIZE, offset)
+            "WHERE products_fts MATCH ? AND p.is_active = 1" + category_filter + discount_filter + _order_clause(sort) + " LIMIT ? OFFSET ?",
+            (match_query,) + category_params + (PAGE_SIZE, offset)
         )
         products = _rows_to_products(cursor.fetchall())
 
@@ -483,11 +515,12 @@ def search_ssr(request: Request, q: Optional[str] = Query(None), sort: Optional[
             "popular_franchises": popular_franchises,
             "all_franchises": all_franchises,
             "current_brand": None,
-            "current_category": None,
+            "current_category": category,
             "current_franchise": None,
             "current_query": q,
             "current_sort": sort,
-            "pagination": pagination
+            "pagination": pagination,
+            "preserved_qs": _preserved_secondary_qs(category, sort)
         }
     )
 

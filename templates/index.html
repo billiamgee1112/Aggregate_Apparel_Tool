@@ -44,9 +44,9 @@
             <div class="bg-gray-900 border border-gray-800 rounded-xl p-5">
                 <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Browse by Brand</h3>
                 <div class="flex flex-col gap-2">
-                    <a href="/" class="text-sm font-medium hover:text-amber-500 text-gray-300 {% if not current_brand %}text-amber-500 font-bold{% endif %}">All Brands</a>
+                    <a href="/{{ preserved_qs | default('') }}" class="text-sm font-medium hover:text-amber-500 text-gray-300 {% if not current_brand %}text-amber-500 font-bold{% endif %}">All Brands</a>
                     {% for brand, count in brand_stats.items() %}
-                        <a href="/brands/{{ brand | lower }}" class="text-sm font-medium flex justify-between items-center text-gray-300 hover:text-amber-500 transition-colors {% if current_brand | lower == brand | lower %}text-amber-500 font-bold{% endif %}">
+                        <a href="/brands/{{ brand | lower }}{{ preserved_qs | default('') }}" class="text-sm font-medium flex justify-between items-center text-gray-300 hover:text-amber-500 transition-colors {% if current_brand | lower == brand | lower %}text-amber-500 font-bold{% endif %}">
                             <span>{{ brand }}</span>
                             <span class="text-xs bg-gray-800 text-gray-400 px-2.5 py-0.5 rounded-full font-bold">{{ count }}</span>
                         </a>
@@ -58,7 +58,7 @@
             <div class="bg-gray-900 border border-gray-800 rounded-xl p-5">
                 <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Shop Categories</h3>
                 <div class="flex flex-col gap-1.5">
-                    <a href="/" class="text-sm font-medium rounded-lg px-3 py-3 hover:bg-gray-800 hover:text-amber-500 text-gray-300 transition-colors {% if not current_category %}text-amber-500 font-bold bg-gray-800{% endif %}">All Categories</a>
+                    <a href="{{ pagination.category_reset_url if pagination else '/' }}" class="text-sm font-medium rounded-lg px-3 py-3 hover:bg-gray-800 hover:text-amber-500 text-gray-300 transition-colors {% if not current_category %}text-amber-500 font-bold bg-gray-800{% endif %}">All Categories</a>
                     {% for cat, info in {
                         "t-shirt": {"label": "T-Shirts", "icon": "👕"},
                         "hoodie": {"label": "Hoodies", "icon": "🎽"},
@@ -66,7 +66,7 @@
                         "sweater": {"label": "Sweaters", "icon": "🧶"},
                         "pants": {"label": "Pants", "icon": "👖"}
                     }.items() %}
-                        <a href="/?category={{ cat }}" class="flex items-center gap-2 text-sm font-semibold uppercase rounded-lg px-3 py-3 text-gray-300 hover:bg-gray-800 hover:text-amber-500 transition-colors {% if current_category == cat %}text-amber-500 font-bold bg-gray-800{% endif %}">
+                        <a href="{{ pagination.category_base_url if pagination else '/?' }}category={{ cat }}" class="flex items-center gap-2 text-sm font-semibold uppercase rounded-lg px-3 py-3 text-gray-300 hover:bg-gray-800 hover:text-amber-500 transition-colors {% if current_category == cat %}text-amber-500 font-bold bg-gray-800{% endif %}">
                             <span class="text-base">{{ info.icon }}</span> {{ info.label }}
                         </a>
                     {% endfor %}
@@ -78,7 +78,7 @@
                 <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Popular Franchises</h3>
                 <div class="flex flex-wrap gap-2">
                     {% for item_tag in popular_franchises %}
-                        <a href="/franchises/{{ item_tag | lower | replace(' ', '-') }}" class="text-xs bg-gray-800 hover:bg-amber-500 hover:text-gray-950 transition-all font-semibold rounded px-2.5 py-1 text-gray-300">
+                        <a href="/franchises/{{ item_tag | lower | replace(' ', '-') }}{{ preserved_qs | default('') }}" class="text-xs bg-gray-800 hover:bg-amber-500 hover:text-gray-950 transition-all font-semibold rounded px-2.5 py-1 text-gray-300">
                             # {{ item_tag }}
                         </a>
                     {% endfor %}
@@ -100,6 +100,7 @@
                     {% endif %}
                 </div>
                 <div class="flex gap-4">
+                    <a href="{{ pagination.sort_base_url }}sort=all" class="text-xs font-bold text-gray-300 hover:text-amber-400 {% if current_sort == 'all' %}text-amber-500{% endif %}">All</a>
                     <a href="{{ pagination.sort_base_url }}sort=newest" class="text-xs font-bold text-gray-300 hover:text-amber-400 {% if current_sort == 'newest' %}text-amber-500{% endif %}">Newest</a>
                     <a href="{{ pagination.sort_base_url }}sort=cheapest" class="text-xs font-bold text-gray-300 hover:text-amber-400 {% if current_sort == 'cheapest' %}text-amber-500{% endif %}">Cheapest</a>
                     <a href="{{ pagination.sort_base_url }}sort=discount" class="text-xs font-bold text-gray-300 hover:text-amber-400 {% if current_sort == 'discount' %}text-amber-500{% endif %}">🔥 Sales</a>
@@ -140,7 +141,7 @@
                                 {% if product.franchise_tags %}
                                 <div class="flex flex-wrap gap-1 mb-1">
                                     {% for tag in product.franchise_tags %}
-                                        <a href="/franchises/{{ tag | lower | replace(' ', '-') }}" class="inline-block text-xs font-bold uppercase tracking-wide bg-gray-800 text-gray-300 hover:bg-amber-500 hover:text-gray-950 transition-colors px-2 py-0.5 rounded">
+                                        <a href="/franchises/{{ tag | lower | replace(' ', '-') }}{{ preserved_qs | default('') }}" class="inline-block text-xs font-bold uppercase tracking-wide bg-gray-800 text-gray-300 hover:bg-amber-500 hover:text-gray-950 transition-colors px-2 py-0.5 rounded">
                                             {{ tag }}
                                         </a>
                                     {% endfor %}
