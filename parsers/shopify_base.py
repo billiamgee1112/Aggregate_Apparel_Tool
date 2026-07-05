@@ -11,6 +11,12 @@ class ShopifyJsonParser(BaseParser):
         brand_name       - display name
         store_root       - e.g. "https://shop.xboxgamestudios.com"
         url_pattern      - ".../collections/apparel/products.json?limit=250&page={page_num}"
+        collection_urls  - optional list of multiple url_pattern-style feeds to
+                            aggregate (e.g. a store that mixes gaming and
+                            non-gaming apparel across many separate per-
+                            franchise collections, like DRKN). When set,
+                            scraper.py iterates and dedupes across all of them
+                            instead of using url_pattern alone.
         franchise_source - "game_tag" | "vendor" | "known_tag" | "mapping_tags"
         known_franchises - (only for "known_tag") list of canonical franchise names
     """
@@ -25,11 +31,34 @@ class ShopifyJsonParser(BaseParser):
     store_root = ""
     franchise_source = "game_tag"
     known_franchises = []
+    collection_urls = []
+
+    # Hard exclusions for stores whose otherwise-relevant collection still mixes
+    # in items that are never gaming apparel (e.g. Culture Kings' "gaming-merch"
+    # collection includes a non-gaming sports cap and a Netflix show tie-in).
+    # Checked case-insensitively against vendor / title respectively. Empty by
+    # default so existing single-purpose parsers are unaffected.
+    exclude_vendors = set()
+    exclude_keywords = []
+
+    # Opt-in inclusion filter for stores whose single collection mixes gaming
+    # apparel with other media (e.g. IGN's "apparel" collection spans anime,
+    # movies, TV, comics, tabletop AND video games, but tags each product with
+    # its own "genre : X" label). When set, a product's tags must contain at
+    # least one of these (case-insensitive exact tag match) to be kept. Empty
+    # by default so existing parsers are unaffected.
+    require_tags = []
+
+    # Some stores' products.json feed includes fully sold-out products that
+    # the live collection page itself hides from shoppers (seen on Culture
+    # Kings: 145 of 232 fed products had zero available variants). Off by
+    # default to preserve existing behavior for stores that don't need it.
+    require_in_stock = False
 
     _APPAREL_HINTS = [
         "shirt", "tee", "hoodie", "sweater", "sweatshirt", "jacket", "hat",
         "beanie", "cap", "sock", "short", "pant", "crewneck", "tank",
-        "long sleeve", "apparel", "jersey", "pullover", "outerwear"
+        "long sleeve", "apparel", "jersey", "pullover", "outerwear", "clothing"
     ]
 
     # Vendors that are fulfillment providers / store names, never franchises
@@ -265,7 +294,24 @@ class ShopifyJsonParser(BaseParser):
         title = (product.get("title") or "").strip()
         handle = product.get("handle", "")
 
-        if not any(h in product_type for h in self._APPAREL_HINTS):
+        vendor = (product.get("vendor") or "").strip().lower()
+        if vendor and vendor in self.exclude_vendors:
+            return "", 0.0, None, "", "", {}
+        title_lower = title.lower()
+        if any(kw in title_lower for kw in self.exclude_keywords):
+            return "", 0.0, None, "", "", {}
+
+        if self.require_tags:
+            product_tags_lower = {str(t).strip().lower() for t in (product.get("tags") or [])}
+            if not any(rt.lower() in product_tags_lower for rt in self.require_tags):
+                return "", 0.0, None, "", "", {}
+
+        # Some stores leave product_type blank on a chunk of their catalog
+        # (seen on oceandust.co) even though the item is clearly apparel -
+        # fall back to checking tags (e.g. "T-Shirt", "Hoodie") before
+        # rejecting, rather than relying on product_type alone.
+        tags_text = " ".join(str(t) for t in (product.get("tags") or [])).lower()
+        if not any(h in product_type for h in self._APPAREL_HINTS) and not any(h in tags_text for h in self._APPAREL_HINTS):
             return "", 0.0, None, "", "", {}
         if not title or not handle:
             return "", 0.0, None, "", "", {}
@@ -282,6 +328,8 @@ class ShopifyJsonParser(BaseParser):
             except (TypeError, ValueError):
                 continue
         if not prices:
+            return "", 0.0, None, "", "", {}
+        if self.require_in_stock and not any(v.get("available") for v in (product.get("variants") or [])):
             return "", 0.0, None, "", "", {}
         current_price = min(prices)
         original_price = None

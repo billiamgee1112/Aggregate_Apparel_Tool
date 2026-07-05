@@ -30,6 +30,15 @@ COMMON_WORD_BLOCKLIST = {
     "traveler", "citadel", "normandy", "forerunner", "bastion", "riverside",
     "biohazard", "lol", "2b", "controller", "engineer", "soldier", "dwarf",
     "transistor", "justice", "valhalla", "testament",
+    # Added 2026-07-05: IGN's "Atomfall - BARD Pullover - Hoodie" product URL
+    # slug (.../atomfall-bard-pullover-hoodie-1) collided with the League of
+    # Legends champion keyword "bard", overriding the correct first-party
+    # "franchise : Atomfall" store tag with "League of Legends". "bard" is a
+    # common English word (a poet/reciter) unrelated to the champion in most
+    # contexts - checked against real DB impact first (see
+    # _check_bard_impact.py), no existing League of Legends product relies on
+    # "bard" alone with no redundant "league"/"legends" signal.
+    "bard",
     # Added 2026-07-05: surfaced by the new franchise_verified re-check pass
     # (franchise_discovery.py verifying previously-unverified naive-tokenizer
     # tags) confirming "Mystery" against the real but irrelevant "Mystery
@@ -37,6 +46,32 @@ COMMON_WORD_BLOCKLIST = {
     # product - the same class of collision as "Pure"/"PEAK" above.
     "mystery",
 }
+
+# Characters who guest-star in Super Smash Bros but have their own separate
+# origin franchise (already the primary/canonical tag once matched via
+# franchise_mappings, e.g. "samus aran" -> "Metroid"). Products naming one of
+# these characters get "Super Smash Bros" appended as an ADDITIONAL tag
+# (not a replacement), so they're discoverable from both the character's real
+# franchise page and the Super Smash Bros page - see get_bonus_franchise_tags().
+# Deliberately excludes "mii" (too generic/ambiguous - spans many Nintendo
+# systems, not just Smash) and "master hand" (no separate origin franchise;
+# he already IS the primary "Super Smash Bros" tag, so no bonus needed).
+SMASH_ROSTER_KEYWORDS = {
+    "samus aran", "donkey kong", "captain falcon", "fox mccloud", "ness",
+    "pikachu", "jigglypuff", "princess zelda", "wii fit trainer", "bayonetta",
+}
+
+def get_bonus_franchise_tags(haystack: str, primary_tag: str) -> list:
+    """Checks for known 'guest character' keywords (e.g. Super Smash Bros
+    roster members) that warrant an ADDITIONAL franchise tag alongside the
+    primary one. Returns a list of extra tags (usually empty or one item)."""
+    haystack = (haystack or "").lower()
+    for key in SMASH_ROSTER_KEYWORDS:
+        if re.search(rf"\b{re.escape(key)}\b", haystack):
+            if primary_tag != "Super Smash Bros":
+                return ["Super Smash Bros"]
+            break
+    return []
 
 def load_dynamic_mappings(db_path: str = DB_PATH) -> dict:
     """Loads matching rules directly from the database's taxonomy index,

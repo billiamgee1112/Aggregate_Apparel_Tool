@@ -229,7 +229,7 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
                             continue
 
                         scraped_tag = metadata.get("scraped_tag", "") if isinstance(metadata, dict) else ""
-                        franchise_tag, franchise_verified = parser.extract_franchise_tag(
+                        franchise_tags, franchise_verified = parser.extract_franchise_tag(
                             str(s_url), 
                             product_name=name, 
                             scraped_tag=scraped_tag, 
@@ -243,7 +243,7 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
                                 store_url=s_url,
                                 image_url=img_url,
                                 brand_name=brand_name,
-                                franchise_tags=[franchise_tag],
+                                franchise_tags=franchise_tags,
                                 franchise_verified=franchise_verified,
                                 category=parser.deduce_category(name, str(s_url)),
                                 description_snippet=metadata.get("description_snippet", "") if isinstance(metadata, dict) else ""
@@ -331,7 +331,7 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
                                 continue
 
                             scraped_tag = metadata.get("scraped_tag", "") if isinstance(metadata, dict) else ""
-                            franchise_tag, franchise_verified = parser.extract_franchise_tag(
+                            franchise_tags, franchise_verified = parser.extract_franchise_tag(
                                 str(s_url), 
                                 product_name=name, 
                                 scraped_tag=scraped_tag, 
@@ -345,7 +345,7 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
                                 store_url=s_url,
                                 image_url=img_url,
                                 brand_name=brand_name,
-                                franchise_tags=[franchise_tag],
+                                franchise_tags=franchise_tags,
                                 franchise_verified=franchise_verified,
                                 category=parser.deduce_category(name, str(s_url)),
                                 description_snippet=metadata.get("description_snippet", "") if isinstance(metadata, dict) else ""
@@ -370,72 +370,87 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
 
         elif parser.pagination_type == "shopify_json":
             import json
-            for page_num in range(1, parser.max_pages + 1):
-                target_url = parser.url_pattern.format(page_num=page_num)
-                print(f"[{brand_name}] Fetching JSON feed page {page_num}: {target_url}")
+            # Most Shopify stores expose one single collection feed (url_pattern).
+            # A few (e.g. DRKN, which mixes gaming and non-gaming apparel across
+            # many separate per-franchise collections) instead set
+            # collection_urls to a list of feed patterns to aggregate. Products
+            # can legitimately appear in more than one of those collections
+            # (e.g. a Rainbow Six item in both the umbrella and a seasonal
+            # sub-collection), so seen_store_urls dedupes across all of them.
+            collection_patterns = getattr(parser, "collection_urls", None) or [parser.url_pattern]
+            seen_store_urls = set()
+            for collection_pattern in collection_patterns:
+                for page_num in range(1, parser.max_pages + 1):
+                    target_url = collection_pattern.format(page_num=page_num)
+                    print(f"[{brand_name}] Fetching JSON feed page {page_num}: {target_url}")
 
-                think_time = random.uniform(1000, 2500)
-                await page.wait_for_timeout(think_time)
+                    think_time = random.uniform(1000, 2500)
+                    await page.wait_for_timeout(think_time)
 
-                try:
-                    response = await page.goto(target_url, wait_until="domcontentloaded")
+                    try:
+                        response = await page.goto(target_url, wait_until="domcontentloaded")
 
-                    if response and response.status == 404:
-                        print(f"[{brand_name}] Reached last page (404) at page {page_num}.")
-                        break
+                        if response and response.status == 404:
+                            print(f"[{brand_name}] Reached last page (404) at page {page_num}.")
+                            break
 
-                    raw_text = await response.text()
-                    data = json.loads(raw_text)
-                    products = data.get("products", [])
+                        raw_text = await response.text()
+                        data = json.loads(raw_text)
+                        products = data.get("products", [])
 
-                    if not products:
-                        print(f"[{brand_name}] Feed empty at page {page_num}. Reached end of catalog.")
-                        break
+                        if not products:
+                            print(f"[{brand_name}] Feed empty at page {page_num}. Reached end of catalog.")
+                            break
 
-                    print(f"[{brand_name}] Found {len(products)} raw products on JSON page {page_num}.")
+                        print(f"[{brand_name}] Found {len(products)} raw products on JSON page {page_num}.")
 
-                    for product in products:
-                        try:
-                            name, price, orig_price, s_url, img_url, metadata = parser.parse_product(product, target_url)
+                        for product in products:
+                            try:
+                                name, price, orig_price, s_url, img_url, metadata = parser.parse_product(product, target_url)
 
-                            # The parser already filters apparel via product_type, so no keyword gate here
-                            if not name or price == 0.0 or not img_url or "placeholder" in img_url or "data:image" in img_url:
+                                # The parser already filters apparel via product_type, so no keyword gate here
+                                if not name or price == 0.0 or not img_url or "placeholder" in img_url or "data:image" in img_url:
+                                    continue
+
+                                if s_url in seen_store_urls:
+                                    continue
+                                seen_store_urls.add(s_url)
+
+                                scraped_tag = metadata.get("scraped_tag", "") if isinstance(metadata, dict) else ""
+                                # Shopify stores already determine their own verified status
+                                # internally (parsers/shopify_base.py); extract_franchise_tag is
+                                # only used here for keyword-mapping string normalization and
+                                # guest-character bonus-tag detection, so its own verified flag
+                                # is ignored in favor of the parser's metadata.
+                                franchise_tags, _ = parser.extract_franchise_tag(
+                                    str(s_url),
+                                    product_name=name,
+                                    scraped_tag=scraped_tag,
+                                    fallback=brand_name
+                                )
+                                franchise_verified = metadata.get("franchise_verified", True) if isinstance(metadata, dict) else True
+
+                                item = GamingClothingItem(
+                                    product_name=name,
+                                    current_price=price,
+                                    original_price=orig_price,
+                                    store_url=s_url,
+                                    image_url=img_url,
+                                    brand_name=brand_name,
+                                    franchise_tags=franchise_tags,
+                                    franchise_verified=franchise_verified,
+                                    category=parser.deduce_category(name, str(s_url)),
+                                    description_snippet=metadata.get("description_snippet", "") if isinstance(metadata, dict) else ""
+                                )
+                                scraped_items.append(item)
+                            except Exception:
                                 continue
 
-                            scraped_tag = metadata.get("scraped_tag", "") if isinstance(metadata, dict) else ""
-                            # Shopify stores already determine their own verified status
-                            # internally (parsers/shopify_base.py); extract_franchise_tag is
-                            # only used here for keyword-mapping string normalization, so its
-                            # own verified flag is ignored in favor of the parser's metadata.
-                            franchise_tag, _ = parser.extract_franchise_tag(
-                                str(s_url),
-                                product_name=name,
-                                scraped_tag=scraped_tag,
-                                fallback=brand_name
-                            )
-                            franchise_verified = metadata.get("franchise_verified", True) if isinstance(metadata, dict) else True
-
-                            item = GamingClothingItem(
-                                product_name=name,
-                                current_price=price,
-                                original_price=orig_price,
-                                store_url=s_url,
-                                image_url=img_url,
-                                brand_name=brand_name,
-                                franchise_tags=[franchise_tag],
-                                franchise_verified=franchise_verified,
-                                category=parser.deduce_category(name, str(s_url)),
-                                description_snippet=metadata.get("description_snippet", "") if isinstance(metadata, dict) else ""
-                            )
-                            scraped_items.append(item)
-                        except Exception:
-                            continue
-
-                except Exception as e:
-                    print(f"[{brand_name}] JSON fetch warning on page {page_num}: {e}")
-                    if page_num == 1:
-                        break
-                    continue
+                    except Exception as e:
+                        print(f"[{brand_name}] JSON fetch warning on page {page_num}: {e}")
+                        if page_num == 1:
+                            break
+                        continue
     finally:
         await page.close()
         await context.close()

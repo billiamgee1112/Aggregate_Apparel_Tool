@@ -3,7 +3,7 @@ import re
 from abc import ABC, abstractmethod
 from urllib.parse import urlparse, urljoin
 from bs4 import BeautifulSoup
-from parsers.franchise_map import clean_franchise_tag
+from parsers.franchise_map import clean_franchise_tag, get_bonus_franchise_tags
 
 class BaseParser(ABC):
     
@@ -85,7 +85,7 @@ class BaseParser(ABC):
     def extract_franchise_tag(store_url: str, product_name: str = "", scraped_tag: str = "", fallback: str = "Geek Apparel") -> tuple:
         """Deduces a clean franchise name using HTML markers, database mappings, and smart NLP tokenizing.
 
-        Returns (tag: str, verified: bool). "verified" distinguishes trustworthy
+        Returns (tags: list, verified: bool). "verified" distinguishes trustworthy
         signals (the store's own scraped label, or a match against our curated/
         Wikidata-backed keyword table) from the naive title-tokenizer/URL-slug
         guesses, which are NEVER independently checked against anything and can
@@ -93,7 +93,19 @@ class BaseParser(ABC):
         character's name instead of the real franchise). franchise_discovery.py
         uses this flag to know which tags still need a Wikidata verification
         pass, in addition to its existing brand_name-fallback/Gamer Culture checks.
+
+        "tags" is usually a single-item list, but gets a second entry appended
+        (e.g. "Super Smash Bros") when the product also names a known guest
+        character from another game's roster - see get_bonus_franchise_tags().
         """
+        primary_tag, verified = BaseParser._resolve_primary_tag(store_url, product_name, scraped_tag, fallback)
+        bonus = get_bonus_franchise_tags(f"{scraped_tag} {product_name}", primary_tag)
+        return [primary_tag] + bonus, verified
+
+    @staticmethod
+    def _resolve_primary_tag(store_url: str, product_name: str = "", scraped_tag: str = "", fallback: str = "Geek Apparel") -> tuple:
+        """The original single-tag cascade logic, unchanged - see
+        extract_franchise_tag() for the public entry point and its docstring."""
         # 1. Prioritize DOM Tags extracted directly from the HTML product card!
         if scraped_tag:
             scraped_tag_clean = scraped_tag.replace("Game Art", "").strip()

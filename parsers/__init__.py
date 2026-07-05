@@ -7,6 +7,12 @@ from .eightysixed import EightysixedParser
 from .xbox import XboxGameStudiosParser
 from .bethesda import BethesdaParser
 from .blizzard import BlizzardParser
+from .oceandust import OceanDustParser
+from .drkn import DrknParser
+from .culture_kings import CultureKingsParser
+from .sega import SegaParser
+from .square_enix import SquareEnixParser
+from .ign import IgnParser
 
 # Master registry of active storefront scraper plugins
 ACTIVE_PARSERS = [
@@ -17,5 +23,11 @@ ACTIVE_PARSERS = [
     EightysixedParser(),
     XboxGameStudiosParser(),
     BethesdaParser(),
-    BlizzardParser()
+    BlizzardParser(),
+    OceanDustParser(),
+    DrknParser(),
+    CultureKingsParser(),
+    SegaParser(),
+    SquareEnixParser(),
+    IgnParser()
 ]
