@@ -3,9 +3,10 @@
 used on /franchises/{slug} landing pages for SEO content.
 
 Idempotent (INSERT OR REPLACE) - safe to re-run any time to update wording
-or add new franchises. Currently covers all 18 "popular" franchises (the
-top-18-by-product-count list used for the sidebar); more franchises will be
-added here over time.
+or add new franchises. Currently covers the 18 "popular" franchises (the
+top-18-by-product-count list used for the sidebar) plus Games Done Quick,
+which is included regardless of catalog size since it's a charity event
+rather than a game; more franchises will be added here over time.
 
 Usage (from project root):
     python seed_franchise_content.py
@@ -181,6 +182,14 @@ drafts = [
      "from a mix of storefronts and independent fan-art printers, covering imagery from across "
      "the series rather than just the newest release. It's a good pick if you want something "
      "with a darker, mythology-driven look."),
+
+    ("Games Done Quick",
+     "Games Done Quick (GDQ) is a bi-annual, week-long twenty-four hour speedrunning marathon that "
+     "brings together elite gamers from around the globe to finish video games as fast as humanly possible. "
+     "By utilizing frame-perfect mechanical inputs, software glitches, and deep routing strategies, players showcase "
+     "everything from retro arcade classics to modern masterpieces. Beyond world-record-setting gameplay, GDQ is an absolute charitable powerhouse. "
+     "Since its inception in 2010, the organization has raised over 60 million dollars for globally recognized non-profits. Its flagship winter and "
+     "summer events directly benefit life-saving organizations including the Prevent Cancer Foundation and Doctors Without Borders.")
 ]
 
 for name, text in drafts:

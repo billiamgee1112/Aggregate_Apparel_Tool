@@ -8,11 +8,14 @@ class TheYeteeParser(ShopifyJsonParser):
     is creator-owned art with no game tie-in at all (personal artist/brand
     names used as the vendor, e.g. "Miski", "Marc Junker", "ProZD",
     "SUPERJUMBO" - confirmed via the store's own "artist_X" tags), plus The
-    Yetee's own generic brand line and Games Done Quick charity-event tees
-    (not tied to one consistent franchise) - all excluded outright. A few
-    publisher/studio vendors (Red Hook Studios, Heart Machine, Armor Games)
-    aren't franchises themselves, so those are mapped to their flagship game
-    via the store's own game-specific tags.
+    Yetee's own generic brand line - excluded outright. Games Done Quick
+    charity-event tees use per-event vendor names (e.g. "SGDQ 2026",
+    "AGDQ 2026", "Games Done Quick") that change every event, so those are
+    normalized to a single "Games Done Quick" franchise tag instead of being
+    excluded or split across events. A few publisher/studio vendors (Red
+    Hook Studios, Heart Machine, Armor Games) aren't franchises themselves,
+    so those are mapped to their flagship game via the store's own
+    game-specific tags.
     """
 
     brand_name = "The Yetee"
@@ -27,8 +30,13 @@ class TheYeteeParser(ShopifyJsonParser):
         "the yetee", "angyfrog", "astrawitch", "chilluminati", "gazola",
         "marc junker", "miski", "natasha petrovic", "pigboom", "pixel eyebat",
         "prozd", "sorry we're closed", "thanuki", "superjumbo",
-        "sgdq 2026",
     }
+
+    # Games Done Quick event vendor names change every event (e.g. "SGDQ
+    # 2026", "AGDQ 2026", "WGDQ 2026") - normalize any of them to one
+    # consistent franchise tag rather than excluding them or splintering
+    # them into a separate franchise per event.
+    _GDQ_VENDOR_PREFIXES = ("agdq", "sgdq", "wgdq", "games done quick")
 
     # Publisher/studio names (not franchises themselves) mapped to their
     # flagship game, confirmed via the store's own game-specific tags.
@@ -40,6 +48,8 @@ class TheYeteeParser(ShopifyJsonParser):
 
     def _deduce_via_strategy(self, product) -> str:
         vendor = (product.get("vendor") or "").strip()
+        if vendor.lower().startswith(self._GDQ_VENDOR_PREFIXES):
+            return "Games Done Quick"
         override = self._VENDOR_OVERRIDES.get(vendor.lower())
         if override:
             return override
