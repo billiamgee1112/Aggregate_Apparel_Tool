@@ -160,11 +160,21 @@ in this session.
 
 `seed_franchise_content.py` seeds the curated intro write-ups shown on
 `/franchises/{slug}` pages (the "About [Franchise]" box). It's idempotent, so
-re-running it is always safe. To add more franchises beyond the current top
-18, either ask me to draft the next batch, or add entries directly to the
-`drafts` list in that file and re-run it locally, review on `localhost`, then
-push the updated `apparel_aggregator.db` live the same way as the weekly
-routine above.
+re-running it is always safe.
+
+To add a new franchise write-up:
+
+1. Add a new `(name, text)` tuple to the `drafts` list in
+   `seed_franchise_content.py`, following the same style as the existing
+   entries (no "official"/"licensed" framing, no em dashes).
+2. Run the script to write it into your local database:
+   ```powershell
+   py seed_franchise_content.py
+3. Review it locally at http://127.0.0.1:8000/franchises/{slug} (with
+    uvicorn api:app --reload running) to confirm it reads well and renders
+    correctly.
+4. Push the updated database to production:
+    scp apparel_aggregator.db ubuntu@REDACTED_VPS_IP:/opt/aggregate_apparel/apparel_aggregator.db 
 
 ---
 
