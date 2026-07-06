@@ -364,5 +364,6 @@ class ShopifyJsonParser(BaseParser):
             "scraped_tag": franchise_name,
             "franchise_verified": franchise_verified,
             "description_snippet": self._extract_description_snippet(product.get("body_html", "")),
+            "product_type": product_type,
         }
         return title, current_price, original_price, store_url, image_url, metadata

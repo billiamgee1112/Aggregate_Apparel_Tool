@@ -431,6 +431,7 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
                                     fallback=brand_name
                                 )
                                 franchise_verified = metadata.get("franchise_verified", True) if isinstance(metadata, dict) else True
+                                product_type = metadata.get("product_type", "") if isinstance(metadata, dict) else ""
 
                                 item = GamingClothingItem(
                                     product_name=name,
@@ -441,7 +442,7 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
                                     brand_name=brand_name,
                                     franchise_tags=franchise_tags,
                                     franchise_verified=franchise_verified,
-                                    category=parser.deduce_category(name, str(s_url)),
+                                    category=parser.deduce_category(name, str(s_url), product_type),
                                     description_snippet=metadata.get("description_snippet", "") if isinstance(metadata, dict) else "",
                                     currency=parser.currency
                                 )

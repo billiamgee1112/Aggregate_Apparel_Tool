@@ -171,9 +171,18 @@ class BaseParser(ABC):
         return fallback, True
 
     @staticmethod
-    def deduce_category(product_name: str, store_url: str) -> str:
-        """Categorizes clothing items dynamically using simple keyword heuristics."""
-        text_to_search = f"{product_name} {store_url}".lower()
+    def deduce_category(product_name: str, store_url: str, product_type: str = "") -> str:
+        """Categorizes clothing items dynamically using simple keyword heuristics.
+
+        Checks the store's own 'product_type' field FIRST when the caller has
+        it available (far more authoritative than guessing from the title -
+        e.g. Eightysixed/Blizzard products are often just a bare character
+        name like "Akuma" with zero fabric-type words in the title at all,
+        but Shopify's own product_type metadata says "T-Shirts" directly).
+        Falls back to the original title/URL text-guessing when product_type
+        is blank or doesn't match anything (some stores leave it empty).
+        """
+        text_to_search = f"{product_type} {product_name} {store_url}".lower()
         
         # Mapping definitions
         mapping = {

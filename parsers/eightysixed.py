@@ -86,6 +86,6 @@ class EightysixedParser(BaseParser):
             image_url = images[0]["src"]
 
         # 'vendor' is a clean, authoritative franchise signal (e.g. "Guilty Gear")
-        metadata = {"scraped_tag": vendor}
+        metadata = {"scraped_tag": vendor, "product_type": product_type}
 
         return title, current_price, original_price, store_url, image_url, metadata
