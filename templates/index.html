@@ -50,6 +50,32 @@
         </p>
     </div>
 
+    <!-- Active Filters Bar - always visible whenever any filter is
+         narrowing the current listing, so it's never ambiguous why a
+         product/franchise appears to be "missing" (a filter left on from
+         an earlier click is the most common cause). Each chip removes just
+         that one filter; "Clear all" resets to the unfiltered homepage. -->
+    {% set sort_labels = {"all": "All", "cheapest": "Cheapest", "discount": "🔥 Sales"} %}
+    {% if active_filters %}
+    <div class="flex flex-wrap items-center gap-2 mb-6 -mt-2 bg-gray-900 border border-gray-800 rounded-xl p-3">
+        <span class="text-xs font-bold text-gray-400 uppercase tracking-widest pl-1">Active Filters:</span>
+        {% for filt in active_filters %}
+            <a href="{{ filt.remove_url }}" class="inline-flex items-center gap-1.5 text-xs font-semibold bg-gray-800 hover:bg-red-500/20 hover:text-red-400 text-amber-500 rounded-full pl-3 pr-2 py-1.5 transition-colors">
+                {% if filt.type == 'category' %}Category: {{ category_options[filt.value].label if filt.value in category_options else filt.value }}
+                {% elif filt.type == 'brand' %}Brand: {{ filt.value }}
+                {% elif filt.type == 'franchise' %}Franchise: {{ filt.value }}
+                {% elif filt.type == 'q' %}Search: "{{ filt.value }}"
+                {% elif filt.type == 'sort' %}Sort: {{ sort_labels[filt.value] if filt.value in sort_labels else filt.value }}
+                {% endif %}
+                <span class="text-sm leading-none">&times;</span>
+            </a>
+        {% endfor %}
+        {% if active_filters | length > 1 %}
+            <a href="/" class="text-xs font-semibold text-gray-400 hover:text-red-400 underline pl-1">Clear all</a>
+        {% endif %}
+    </div>
+    {% endif %}
+
     <!-- Curated franchise write-up (SEO content) - only present once a
          human-reviewed intro exists for this franchise in franchise_content.
          Deliberately absent for most franchises for now; added gradually. -->
@@ -82,9 +108,9 @@
                         </svg>
                     </summary>
                     <div class="flex flex-col gap-2 mt-4 max-h-80 overflow-y-auto pr-1">
-                        <a href="/{{ preserved_qs | default('') }}" class="text-sm font-medium hover:text-amber-500 text-gray-300 {% if not current_brand %}text-amber-500 font-bold{% endif %}">All Brands</a>
+                        <a href="/{{ preserved_qs_brand | default('') }}" class="text-sm font-medium hover:text-amber-500 text-gray-300 {% if not current_brand %}text-amber-500 font-bold{% endif %}">All Brands</a>
                         {% for brand, count in brand_stats.items() %}
-                            <a href="/brands/{{ brand | lower }}{{ preserved_qs | default('') }}" class="text-sm font-medium flex justify-between items-center text-gray-300 hover:text-amber-500 transition-colors {% if current_brand | lower == brand | lower %}text-amber-500 font-bold{% endif %}">
+                            <a href="/brands/{{ brand | lower }}{{ preserved_qs_brand | default('') }}" class="text-sm font-medium flex justify-between items-center text-gray-300 hover:text-amber-500 transition-colors {% if current_brand | lower == brand | lower %}text-amber-500 font-bold{% endif %}">
                                 <span>{{ brand }}</span>
                                 <span class="text-xs bg-gray-800 text-gray-400 px-2.5 py-0.5 rounded-full font-bold">{{ count }}</span>
                             </a>
@@ -111,7 +137,7 @@
                 <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Popular Franchises</h3>
                 <div class="flex flex-wrap gap-2">
                     {% for item_tag in popular_franchises %}
-                        <a href="/franchises/{{ item_tag | lower | replace(' ', '-') }}{{ preserved_qs | default('') }}" class="text-xs bg-gray-800 hover:bg-amber-500 hover:text-gray-950 transition-all font-semibold rounded px-2.5 py-1 text-gray-300">
+                        <a href="/franchises/{{ item_tag | lower | replace(' ', '-') }}{{ preserved_qs_franchise | default('') }}" class="text-xs bg-gray-800 hover:bg-amber-500 hover:text-gray-950 transition-all font-semibold rounded px-2.5 py-1 text-gray-300">
                             # {{ item_tag }}
                         </a>
                     {% endfor %}
@@ -138,9 +164,9 @@
                     <div>
                         <h4 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Brand</h4>
                         <div class="flex flex-wrap gap-2">
-                            <a href="/{{ preserved_qs | default('') }}" class="text-xs font-semibold rounded px-2.5 py-1.5 transition-colors {% if not current_brand %}bg-amber-500 text-gray-950{% else %}bg-gray-800 text-gray-300 hover:bg-gray-700{% endif %}">All Brands</a>
+                            <a href="/{{ preserved_qs_brand | default('') }}" class="text-xs font-semibold rounded px-2.5 py-1.5 transition-colors {% if not current_brand %}bg-amber-500 text-gray-950{% else %}bg-gray-800 text-gray-300 hover:bg-gray-700{% endif %}">All Brands</a>
                             {% for brand, count in brand_stats.items() %}
-                                <a href="/brands/{{ brand | lower }}{{ preserved_qs | default('') }}" class="text-xs font-semibold rounded px-2.5 py-1.5 transition-colors {% if current_brand | lower == brand | lower %}bg-amber-500 text-gray-950{% else %}bg-gray-800 text-gray-300 hover:bg-gray-700{% endif %}">{{ brand }}</a>
+                                <a href="/brands/{{ brand | lower }}{{ preserved_qs_brand | default('') }}" class="text-xs font-semibold rounded px-2.5 py-1.5 transition-colors {% if current_brand | lower == brand | lower %}bg-amber-500 text-gray-950{% else %}bg-gray-800 text-gray-300 hover:bg-gray-700{% endif %}">{{ brand }}</a>
                             {% endfor %}
                         </div>
                     </div>
@@ -208,7 +234,7 @@
                                 {% if product.franchise_tags %}
                                 <div class="flex flex-wrap gap-1 mb-1">
                                     {% for tag in product.franchise_tags %}
-                                        <a href="/franchises/{{ tag | lower | replace(' ', '-') }}{{ preserved_qs | default('') }}" class="inline-block text-xs font-bold uppercase tracking-wide bg-gray-800 text-gray-300 hover:bg-amber-500 hover:text-gray-950 transition-colors px-2 py-0.5 rounded">
+                                        <a href="/franchises/{{ tag | lower | replace(' ', '-') }}{{ preserved_qs_franchise | default('') }}" class="inline-block text-xs font-bold uppercase tracking-wide bg-gray-800 text-gray-300 hover:bg-amber-500 hover:text-gray-950 transition-colors px-2 py-0.5 rounded">
                                             {{ tag }}
                                         </a>
                                     {% endfor %}

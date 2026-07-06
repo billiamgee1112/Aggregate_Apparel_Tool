@@ -62,6 +62,17 @@ class ShopifyJsonParser(BaseParser):
         "headwear", "lounge", "flannel", "onesie", "dress", "joggers"
     ]
 
+    # Unambiguous non-clothing items that occasionally slip through the
+    # _APPAREL_HINTS check above when a store mis-tags/mis-categorizes a
+    # product (e.g. a poster or gift card filed under a "Hats"-ish
+    # product_type). Checked against the TITLE specifically, since these
+    # terms are never legitimately part of a real clothing item's name.
+    # "blanket" is deliberately excluded from this list - some stores (e.g.
+    # Blizzard's "Diablo Cute But Deadly Wearable Blanket") sell genuinely
+    # wearable blankets as loungewear, so that one needs the softer
+    # allow-if-"wearable" check below instead of a hard ban.
+    _NON_CLOTHING_TITLE_KEYWORDS = ("gift card", "poster", "pillow case", "pills")
+
     # Vendors that are fulfillment providers / store names, never franchises
     _VENDOR_IGNORE = {
         "printful", "bestlink", "lgm", "king graphics", "glitchgear.com",
@@ -300,6 +311,10 @@ class ShopifyJsonParser(BaseParser):
             return "", 0.0, None, "", "", {}
         title_lower = title.lower()
         if any(kw in title_lower for kw in self.exclude_keywords):
+            return "", 0.0, None, "", "", {}
+        if any(kw in title_lower for kw in self._NON_CLOTHING_TITLE_KEYWORDS):
+            return "", 0.0, None, "", "", {}
+        if "blanket" in title_lower and "wearable" not in title_lower:
             return "", 0.0, None, "", "", {}
 
         if self.require_tags:

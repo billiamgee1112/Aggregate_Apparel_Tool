@@ -181,7 +181,7 @@ class BaseParser(ABC):
             "hoodie": ["hoodie", "hood"],
             "sweater": ["sweater", "sweatshirt", "crewneck", "pullover", "cardigan"],
             "pants": ["pants", "sweatpants", "joggers", "loungewear", "leggings", "jeans"],
-            "t-shirt": ["t-shirt", "tshirt", "tee", "shirt", "tank top", "tank", "clovertop"]
+            "t-shirt": ["t-shirt", "tshirt", "tee", "shirt", "tank top", "tank", "clovertop", "long sleeve"]
         }
         
         for category, keywords in mapping.items():

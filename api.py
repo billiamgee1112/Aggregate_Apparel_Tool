@@ -145,12 +145,52 @@ def build_pagination(path: str, filters: dict, sort: str, page: int, total_count
         "end_index": min(page * PAGE_SIZE, total_count),
     }
 
-def _preserved_secondary_qs(category: Optional[str], sort: Optional[str]) -> str:
-    """Builds a '?category=X&sort=Y' suffix (or '' if neither is set), used
-    when switching the primary brand/franchise facet via a sidebar link so
-    the secondary category/sort facets carry over instead of being reset."""
-    parts = {k: v for k, v in {"category": category, "sort": sort}.items() if v}
+def _preserved_secondary_qs(category: Optional[str], sort: Optional[str], brand: Optional[str] = None, franchise: Optional[str] = None) -> str:
+    """Builds a '?category=X&sort=Y[&brand=Z][&franchise=W]' suffix (or ''
+    if nothing is set), used when switching the primary brand/franchise
+    facet via a sidebar link so the OTHER active facets carry over instead
+    of being reset. 'brand'/'franchise' let a link preserve the facet
+    that ISN'T the one being switched (e.g. a brand link preserves the
+    current franchise, and vice versa), so brand and franchise filters can
+    be stacked together (e.g. "Final Fantasy items sold by Artsholic")."""
+    parts = {k: v for k, v in {"category": category, "sort": sort, "brand": brand, "franchise": franchise}.items() if v}
     return f"?{urlencode(parts)}" if parts else ""
+
+def _build_active_filters(category: Optional[str], brand: Optional[str], franchise: Optional[str], query: Optional[str], sort: Optional[str]) -> list:
+    """Builds the 'active filters' bar shown above the product grid, so it's
+    always obvious at a glance which facets are currently narrowing the
+    listing (added after a user thought Genshin Impact products had
+    vanished, when in fact an unnoticed filter was just still applied from
+    an earlier click).
+
+    Every chip's removal link points at '/' (home) with the OTHER active
+    facets preserved as query params - one consistent mental model
+    regardless of whether the current page is a dedicated /franchises/{x}
+    or /brands/{x} route, or the home page with query-string filters.
+
+    Includes 'sort' as a filter too: "Newest" is the default/no-op state
+    (omitted), but "All", "Cheapest", and especially "🔥 Sales" all
+    genuinely change what's visible - "Sales" specifically HIDES every
+    non-discounted item (see _discount_filter_clause), which is exactly the
+    kind of surprising, easy-to-forget-about restriction this bar exists to
+    surface.
+    """
+    active = {"category": category, "brand": brand, "franchise": franchise, "q": query}
+    if sort and sort != "newest":
+        active["sort"] = sort
+
+    chips = []
+    for key, value in active.items():
+        if not value:
+            continue
+        remaining = {k: v for k, v in active.items() if k != key and v}
+        qs = urlencode(remaining)
+        chips.append({
+            "type": key,
+            "value": value,
+            "remove_url": f"/?{qs}" if qs else "/"
+        })
+    return chips
 
 # Find templates relative to the current file
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
@@ -404,7 +444,10 @@ def home_index(
             "current_sort": sort,
             "pagination": pagination,
             "preserved_qs": _preserved_secondary_qs(category, sort),
-            "structured_data_ld": structured_data_ld
+            "preserved_qs_brand": _preserved_secondary_qs(category, sort, franchise=franchise),
+            "preserved_qs_franchise": _preserved_secondary_qs(category, sort, brand=brand),
+            "structured_data_ld": structured_data_ld,
+            "active_filters": _build_active_filters(category, brand, franchise, None, sort)
         }
     )
 
@@ -428,8 +471,11 @@ def about_page(request: Request):
 
 
 @app.get("/franchises/{franchise_slug}")
-def franchise_landing_ssr(request: Request, franchise_slug: str, category: Optional[str] = Query(None), sort: Optional[str] = Query("newest"), page: int = Query(1)):
-    """URL Canonical Route targeting dedicated franchises like /franchises/halo or /franchises/fallout."""
+def franchise_landing_ssr(request: Request, franchise_slug: str, category: Optional[str] = Query(None), brand: Optional[str] = Query(None), sort: Optional[str] = Query("newest"), page: int = Query(1)):
+    """URL Canonical Route targeting dedicated franchises like /franchises/halo or /franchises/fallout.
+    Optionally stacks a 'brand' filter on top (e.g. /franchises/final-fantasy?brand=artsholic
+    for "Final Fantasy items sold by Artsholic") - the franchise stays the
+    primary/canonical facet (title, breadcrumbs, SEO intro), brand narrows further."""
     # Deduce slug to tag format: "final-fantasy" -> "final fantasy"
     cleaned_slug = franchise_slug.replace("-", " ").strip()
 
@@ -439,6 +485,9 @@ def franchise_landing_ssr(request: Request, franchise_slug: str, category: Optio
 
     where = " WHERE is_active = 1 AND LOWER(franchise_tags) LIKE ?"
     params = [f"%{cleaned_slug.lower()}%"]
+    if brand:
+        where += " AND LOWER(brand_name) = ?"
+        params.append(brand.lower())
     if category:
         where += " AND LOWER(category) = ?"
         params.append(category.lower())
@@ -446,7 +495,7 @@ def franchise_landing_ssr(request: Request, franchise_slug: str, category: Optio
 
     total_count = cursor.execute("SELECT COUNT(*) FROM products" + where, tuple(params)).fetchone()[0]
 
-    pagination = build_pagination(f"/franchises/{franchise_slug}", {"category": category}, sort, page, total_count)
+    pagination = build_pagination(f"/franchises/{franchise_slug}", {"category": category, "brand": brand}, sort, page, total_count)
     offset = (pagination["current_page"] - 1) * PAGE_SIZE
 
     cursor.execute(
@@ -466,6 +515,11 @@ def franchise_landing_ssr(request: Request, franchise_slug: str, category: Optio
         except Exception:
             pass
 
+    # Resolve the human-readable brand name (real DB casing, e.g. "Artsholic")
+    matched_brand = None
+    if brand:
+        matched_brand = rows[0]["brand_name"] if rows else brand.title()
+
     # Curated SEO intro write-up for this franchise, if one exists yet (see
     # franchise_content table - populated manually/reviewed before publishing,
     # not auto-generated). Most franchises won't have one yet; that's fine,
@@ -479,74 +533,14 @@ def franchise_landing_ssr(request: Request, franchise_slug: str, category: Optio
 
     products = _rows_to_products(rows)
 
-    structured_data_ld = [_build_breadcrumbs(BASE_DOMAIN, [
+    breadcrumb_items = [
         ("Home", BASE_DOMAIN),
         ("Game Collections", None),
-        (matched_title, None),
-    ])]
-    item_list = _build_product_item_list(products, BASE_DOMAIN)
-    if item_list:
-        structured_data_ld.append(item_list)
-
-    return templates.TemplateResponse(
-        request=request,
-        name="index.html",
-        context={
-            "base_domain": BASE_DOMAIN,
-            "products": products,
-            "brand_stats": brand_stats,
-            "popular_franchises": popular_franchises,
-            "all_franchises": all_franchises,
-            "current_brand": None,
-            "current_category": category,
-            "current_franchise": matched_title,
-            "current_sort": sort,
-            "pagination": pagination,
-            "preserved_qs": _preserved_secondary_qs(category, sort),
-            "structured_data_ld": structured_data_ld,
-            "franchise_intro": franchise_intro
-        }
-    )
-
-
-@app.get("/brands/{brand_slug}")
-def brand_landing_ssr(request: Request, brand_slug: str, category: Optional[str] = Query(None), sort: Optional[str] = Query("newest"), page: int = Query(1)):
-    """URL Canonical Route targeting vendor profiles like /brands/bethesda or /brands/blizzard."""
-    conn = get_db_connection()
-    brand_stats, popular_franchises, all_franchises = fetch_common_stats(conn)
-    cursor = conn.cursor()
-
-    where = " WHERE is_active = 1 AND LOWER(brand_name) = ?"
-    params = [brand_slug.strip().lower()]
-    if category:
-        where += " AND LOWER(category) = ?"
-        params.append(category.lower())
-    where += _discount_filter_clause(sort)
-
-    total_count = cursor.execute("SELECT COUNT(*) FROM products" + where, tuple(params)).fetchone()[0]
-
-    pagination = build_pagination(f"/brands/{brand_slug}", {"category": category}, sort, page, total_count)
-    offset = (pagination["current_page"] - 1) * PAGE_SIZE
-
-    cursor.execute(
-        "SELECT * FROM products" + where + _order_clause(sort) + " LIMIT ? OFFSET ?",
-        tuple(params) + (PAGE_SIZE, offset)
-    )
-    rows = cursor.fetchall()
-
-    # Track real brand title
-    matched_brand = brand_slug.title()
-    if rows:
-        matched_brand = rows[0]["brand_name"]
-    conn.close()
-
-    products = _rows_to_products(rows)
-
-    structured_data_ld = [_build_breadcrumbs(BASE_DOMAIN, [
-        ("Home", BASE_DOMAIN),
-        ("Brands", None),
-        (matched_brand, None),
-    ])]
+        (matched_title, f"{BASE_DOMAIN}/franchises/{franchise_slug}" if matched_brand else None),
+    ]
+    if matched_brand:
+        breadcrumb_items.append((matched_brand, None))
+    structured_data_ld = [_build_breadcrumbs(BASE_DOMAIN, breadcrumb_items)]
     item_list = _build_product_item_list(products, BASE_DOMAIN)
     if item_list:
         structured_data_ld.append(item_list)
@@ -562,11 +556,105 @@ def brand_landing_ssr(request: Request, brand_slug: str, category: Optional[str]
             "all_franchises": all_franchises,
             "current_brand": matched_brand,
             "current_category": category,
-            "current_franchise": None,
+            "current_franchise": matched_title,
             "current_sort": sort,
             "pagination": pagination,
             "preserved_qs": _preserved_secondary_qs(category, sort),
-            "structured_data_ld": structured_data_ld
+            "preserved_qs_brand": _preserved_secondary_qs(category, sort, franchise=matched_title),
+            "preserved_qs_franchise": _preserved_secondary_qs(category, sort, brand=matched_brand),
+            "structured_data_ld": structured_data_ld,
+            "franchise_intro": franchise_intro,
+            "active_filters": _build_active_filters(category, matched_brand, matched_title, None, sort)
+        }
+    )
+
+
+@app.get("/brands/{brand_slug}")
+def brand_landing_ssr(request: Request, brand_slug: str, category: Optional[str] = Query(None), franchise: Optional[str] = Query(None), sort: Optional[str] = Query("newest"), page: int = Query(1)):
+    """URL Canonical Route targeting vendor profiles like /brands/bethesda or /brands/blizzard.
+    Optionally stacks a 'franchise' filter on top (e.g. /brands/artsholic?franchise=final-fantasy
+    for "Final Fantasy items sold by Artsholic") - the brand stays the
+    primary/canonical facet (title, breadcrumbs), franchise narrows further."""
+    conn = get_db_connection()
+    brand_stats, popular_franchises, all_franchises = fetch_common_stats(conn)
+    cursor = conn.cursor()
+
+    where = " WHERE is_active = 1 AND LOWER(brand_name) = ?"
+    params = [brand_slug.strip().lower()]
+    cleaned_franchise_slug = ""
+    if franchise:
+        cleaned_franchise_slug = franchise.replace("-", " ").strip()
+        where += " AND LOWER(franchise_tags) LIKE ?"
+        params.append(f"%{cleaned_franchise_slug.lower()}%")
+    if category:
+        where += " AND LOWER(category) = ?"
+        params.append(category.lower())
+    where += _discount_filter_clause(sort)
+
+    total_count = cursor.execute("SELECT COUNT(*) FROM products" + where, tuple(params)).fetchone()[0]
+
+    pagination = build_pagination(f"/brands/{brand_slug}", {"category": category, "franchise": franchise}, sort, page, total_count)
+    offset = (pagination["current_page"] - 1) * PAGE_SIZE
+
+    cursor.execute(
+        "SELECT * FROM products" + where + _order_clause(sort) + " LIMIT ? OFFSET ?",
+        tuple(params) + (PAGE_SIZE, offset)
+    )
+    rows = cursor.fetchall()
+
+    # Track real brand title
+    matched_brand = brand_slug.title()
+    if rows:
+        matched_brand = rows[0]["brand_name"]
+
+    # Resolve the human-readable franchise name from the matched rows
+    matched_franchise = None
+    if franchise:
+        matched_franchise = cleaned_franchise_slug.title()
+        if rows:
+            try:
+                matched_franchise = next(
+                    tag for row in rows for tag in json.loads(row["franchise_tags"])
+                    if tag.lower().strip() == cleaned_franchise_slug.lower()
+                )
+            except Exception:
+                pass
+
+    conn.close()
+
+    products = _rows_to_products(rows)
+
+    breadcrumb_items = [
+        ("Home", BASE_DOMAIN),
+        ("Brands", None),
+        (matched_brand, f"{BASE_DOMAIN}/brands/{brand_slug}" if matched_franchise else None),
+    ]
+    if matched_franchise:
+        breadcrumb_items.append((matched_franchise, None))
+    structured_data_ld = [_build_breadcrumbs(BASE_DOMAIN, breadcrumb_items)]
+    item_list = _build_product_item_list(products, BASE_DOMAIN)
+    if item_list:
+        structured_data_ld.append(item_list)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="index.html",
+        context={
+            "base_domain": BASE_DOMAIN,
+            "products": products,
+            "brand_stats": brand_stats,
+            "popular_franchises": popular_franchises,
+            "all_franchises": all_franchises,
+            "current_brand": matched_brand,
+            "current_category": category,
+            "current_franchise": matched_franchise,
+            "current_sort": sort,
+            "pagination": pagination,
+            "preserved_qs": _preserved_secondary_qs(category, sort),
+            "preserved_qs_brand": _preserved_secondary_qs(category, sort, franchise=matched_franchise),
+            "preserved_qs_franchise": _preserved_secondary_qs(category, sort, brand=matched_brand),
+            "structured_data_ld": structured_data_ld,
+            "active_filters": _build_active_filters(category, matched_brand, matched_franchise, None, sort)
         }
     )
 
@@ -633,7 +721,10 @@ def search_ssr(request: Request, q: Optional[str] = Query(None), category: Optio
             "current_sort": sort,
             "pagination": pagination,
             "preserved_qs": _preserved_secondary_qs(category, sort),
-            "structured_data_ld": structured_data_ld
+            "preserved_qs_brand": _preserved_secondary_qs(category, sort),
+            "preserved_qs_franchise": _preserved_secondary_qs(category, sort),
+            "structured_data_ld": structured_data_ld,
+            "active_filters": _build_active_filters(category, None, None, q, sort)
         }
     )
 
