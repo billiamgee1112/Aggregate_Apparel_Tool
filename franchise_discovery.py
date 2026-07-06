@@ -121,12 +121,22 @@ def _candidate_phrases(title):
     to match anything, and Wikidata's fuzzy search confidently returned a
     real but totally unrelated entity for that one bare word. Requiring 2+
     words gives Wikidata enough specificity to avoid that class of mistake.
+
+    Also skips candidates ending in a single-character word. The cleaning
+    regex below splits hyphenated words like "T-Shirt" into separate tokens
+    ("T", "Shirt"), so shrinking a title like "Mystery T-Shirt Bundle" can
+    produce a meaningless trailing fragment ("mystery t") that isn't really
+    2 words of signal at all - just 1 real word plus a stray letter. This
+    exact case got Wikidata-confirmed as the unrelated game "Mystery Tower"
+    for a generic Insert Coin mystery-bundle product (2026-07-06 incident).
     """
     cleaned = re.sub(r"[^0-9A-Za-z\s]", " ", title)
     words = cleaned.split()
     seen = set()
     for end in range(min(len(words), 6), 0, -1):
         if end < 2 and len(words) > 1:
+            continue
+        if len(words[end - 1]) < 2:
             continue
         phrase = " ".join(words[:end])
         key = phrase.lower()
@@ -271,7 +281,18 @@ def run(budget=DEFAULT_BUDGET):
         # generic items (in case a later Wikidata addition now resolves them)
         already_generic = (current_tags == [GENERIC_MERCH_TAG])
         is_brand_fallback = (current_tags == [brand_name])
-        if is_brand_fallback or already_generic:
+        # Exception: mystery/grab-bag bundle URLs (e.g. Insert Coin's
+        # "/bundles/mystery-t-shirt-bundle.html") are deliberately pinned to
+        # Gamer Culture by their parser because they have no real franchise
+        # by design (see parsers/insert_coin.py) - never worth re-gambling on
+        # via the LLM/Wikidata cascade. Re-litigating them every run is how
+        # "Mystery T-Shirt Bundle" got wrongly re-tagged as the unrelated
+        # game "Mystery Tower" (2026-07-06 incident): the LLM suggested it,
+        # and Wikidata genuinely confirmed a real (but irrelevant) entity by
+        # that name, so no generic safeguard could have caught it after the
+        # fact - the only reliable fix is to not re-ask the question.
+        is_pinned_bundle = already_generic and "/bundles/" in (store_url or "")
+        if (is_brand_fallback or already_generic) and not is_pinned_bundle:
             unresolved.append((store_url, product_name, brand_name, already_generic, description_snippet or ""))
         elif not franchise_verified and current_tags:
             # A genuine architectural blind spot: this tag came from the naive

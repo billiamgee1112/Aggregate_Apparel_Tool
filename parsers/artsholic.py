@@ -14,12 +14,20 @@ class ArtsholicParser(BaseParser):
     # Artsholic's "game-art" category also carries pure-anime product lines
     # with no video game tie-in (unlike e.g. Dragon Ball Z, which has actual
     # games like Budokai Tenkaichi) - these don't belong on a gaming apparel
-    # site and are excluded outright rather than tagged.
-    _EXCLUDED_TAG_SLUGS = {"demon-slayer", "jujutsu-kaisen"}
+    # site and are excluded outright rather than tagged. Added Akira, One
+    # Piece, Black Clover, and Sung Jinwoo/Solo Leveling 2026-07-06 (same
+    # class of issue as Demon Slayer/Jujutsu Kaisen).
+    _EXCLUDED_TAG_SLUGS = {
+        "demon-slayer", "jujutsu-kaisen", "akira", "one-piece", "black-clover",
+        "sung-jinwoo", "solo-leveling",
+    }
     # Belt-and-suspenders: the product_tag-X CSS class isn't reliably present
     # on every archive layout/product variant (e.g. "Shorts" listings), so we
     # also exclude based on the product title text itself.
-    _EXCLUDED_NAME_KEYWORDS = ("jujutsu kaisen", "demon slayer")
+    _EXCLUDED_NAME_KEYWORDS = (
+        "jujutsu kaisen", "demon slayer", "akira", "one piece", "black clover",
+        "sung jinwoo", "solo leveling",
+    )
 
     def parse_product(self, product: BeautifulSoup, base_url: str) -> tuple:
         classes = product.get("class", [])
