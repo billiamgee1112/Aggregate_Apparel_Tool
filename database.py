@@ -381,7 +381,8 @@ def init_db():
             is_active INTEGER DEFAULT 1,
             category TEXT NOT NULL DEFAULT 'other',
             description_snippet TEXT,
-            franchise_verified INTEGER DEFAULT 1
+            franchise_verified INTEGER DEFAULT 1,
+            currency TEXT NOT NULL DEFAULT 'USD'
         )
     """)
 
@@ -402,6 +403,25 @@ def init_db():
     # fallbacks get accurately marked 0, and are picked up gradually.
     if "franchise_verified" not in existing_columns:
         cursor.execute("ALTER TABLE products ADD COLUMN franchise_verified INTEGER DEFAULT 1")
+
+    # Migration: add currency to any pre-existing products table. DEFAULT
+    # 'USD' is accurate for every currently-tracked store (verified live -
+    # all default to USD pricing for an unauthenticated scraper request), so
+    # backfilling existing rows to 'USD' is correct, not just a placeholder.
+    if "currency" not in existing_columns:
+        cursor.execute("ALTER TABLE products ADD COLUMN currency TEXT NOT NULL DEFAULT 'USD'")
+
+    # Curated, human-reviewed intro write-ups for franchise landing pages
+    # (SEO content - distinguishes a franchise page from a generic listing
+    # instead of just being a product grid with no unique text). Populated
+    # manually/reviewed before publishing, NOT auto-generated at scrape time.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS franchise_content (
+            franchise_name TEXT PRIMARY KEY,
+            intro_text TEXT NOT NULL,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
 
     
     # 2. Relational Price History Table
@@ -490,8 +510,8 @@ def save_products_to_db(products: list[GamingClothingItem]):
             
         cursor.execute("""
             INSERT INTO products (
-                store_url, product_name, current_price, original_price, image_url, brand_name, franchise_tags, is_active, category, description_snippet, franchise_verified, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, CURRENT_TIMESTAMP)
+                store_url, product_name, current_price, original_price, image_url, brand_name, franchise_tags, is_active, category, description_snippet, franchise_verified, currency, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(store_url) DO UPDATE SET
                 product_name=excluded.product_name,
                 current_price=excluded.current_price,
@@ -502,6 +522,7 @@ def save_products_to_db(products: list[GamingClothingItem]):
                 category=excluded.category,
                 description_snippet=excluded.description_snippet,
                 franchise_verified=excluded.franchise_verified,
+                currency=excluded.currency,
                 is_active=1,
                 updated_at=CURRENT_TIMESTAMP
         """, (
@@ -514,7 +535,8 @@ def save_products_to_db(products: list[GamingClothingItem]):
             json.dumps(product.franchise_tags, ensure_ascii=False),
             product.category,
             product.description_snippet,
-            1 if product.franchise_verified else 0
+            1 if product.franchise_verified else 0,
+            product.currency
         ))
         
         # Log a price point into price progression history on changes

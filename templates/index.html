@@ -10,9 +10,15 @@
 {% endblock %}
 
 {% block meta_description %}
-    {% if current_query %}Search results for "{{ current_query }}" across official gaming apparel from every tracked brand and franchise.
-    {% elif current_franchise %}Compare and discover the best licensed {{ current_franchise }} tshirts, hoodies, jackets, and accessories.
+    {% if current_query %}Search results for "{{ current_query }}" across gaming apparel from every tracked brand and franchise.
+    {% elif current_franchise %}Compare and discover {{ current_franchise }} tshirts, hoodies, jackets, and accessories.
     {% else %}Browse our catalog of gaming clothes curated from official sources across Bethesda, Xbox, Fangamer, Insert Coin, and more.{% endif %}
+{% endblock %}
+
+{% block structured_data %}
+{% for entry in structured_data_ld | default([]) %}
+<script type="application/ld+json">{{ entry | tojson }}</script>
+{% endfor %}
 {% endblock %}
 
 {% block content %}
@@ -31,7 +37,7 @@
             {% if current_query %}
                 🔎 Search results for <span class="text-amber-500">"{{ current_query }}"</span>
             {% elif current_franchise %}
-                🎮 Official <span class="text-amber-500">{{ current_franchise }}</span> Apparel
+                🎮 <span class="text-amber-500">{{ current_franchise }}</span> Apparel
             {% elif current_brand %}
                 🛡️ <span class="text-amber-500">{{ current_brand }}</span> Apparel Collection
             {% else %}
@@ -39,9 +45,21 @@
             {% endif %}
         </h1>
         <p class="text-gray-400 mt-2 text-sm md:text-base">
-            Comparing prices and stocks across official developers and gaming retailers. Pre-screened for genuine garments.
+            Comparing prices and stocks across gaming developers and retailers, both licensed and fan-made. Pre-screened for genuine garments.
         </p>
     </div>
+
+    <!-- Curated franchise write-up (SEO content) - only present once a
+         human-reviewed intro exists for this franchise in franchise_content.
+         Deliberately absent for most franchises for now; added gradually. -->
+    {% if franchise_intro %}
+    <div class="mb-8 -mt-2 max-w-4xl bg-gray-900/60 border border-gray-800 border-l-4 border-l-amber-500 rounded-xl p-5">
+        <h2 class="text-xs font-extrabold uppercase tracking-widest text-amber-500 mb-2">
+            About {{ current_franchise }}
+        </h2>
+        <p class="text-gray-300 text-sm leading-relaxed">{{ franchise_intro }}</p>
+    </div>
+    {% endif %}
 
     <!-- Active Search Facets -->
     <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
@@ -164,7 +182,7 @@
                         <!-- Rich Structured SEO Schema Meta -->
                         <meta itemprop="name" content="{{ product.product_name }}">
                         <meta itemprop="image" content="{{ product.image_url }}">
-                        <meta itemprop="description" content="Official {{ product.brand_name }} apparel item. Tagged with {{ product.franchise_tags | join(', ') }}.">
+                        <meta itemprop="description" content="{{ product.brand_name }} apparel item. Tagged with {{ product.franchise_tags | join(', ') }}.">
                         <meta itemprop="brand" content="{{ product.brand_name }}">
                         
                         <!-- Product Thumbnail -->
@@ -174,7 +192,7 @@
                                     SAVE {{ (((product.original_price - product.current_price) / product.original_price) * 100) | int }}%
                                 </div>
                             {% endif %}
-                            <img src="{{ product.image_url }}" alt="Official {{ product.product_name }} - {{ product.brand_name }}" class="w-full h-full object-cover transition-transform duration-300 hover:scale-105" loading="lazy" onerror="this.onerror=null; this.src='/static/images/placeholder.png';">
+                            <img src="{{ product.image_url }}" alt="{{ product.product_name }} - {{ product.brand_name }}" class="w-full h-full object-cover transition-transform duration-300 hover:scale-105" loading="lazy" onerror="this.onerror=null; this.src='/static/images/placeholder.png';">
                         </div>
 
                         <!-- Card Information Block -->

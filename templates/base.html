@@ -28,6 +28,42 @@
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
 
+    <!-- Google Search Console ownership verification. Replace the content
+         value below with the real verification code from
+         https://search.google.com/search-console (Settings > Ownership
+         verification > HTML tag method) before this has any effect - a
+         placeholder here does nothing until swapped for your real one. -->
+    <meta name="google-site-verification" content="REPLACE_WITH_YOUR_SEARCH_CONSOLE_VERIFICATION_CODE">
+
+    <!-- Sitewide JSON-LD: Organization + WebSite (with a SearchAction so
+         Google can offer a sitelinks search box directly in results).
+         Page-specific structured data (BreadcrumbList, ItemList/Product,
+         etc.) is added per-template via the structured_data block below. -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@graph": [
+            {
+                "@type": "Organization",
+                "name": "GamingApparel.gg",
+                "url": "{{ base_domain | default('https://gamingapparel.gg') }}",
+                "logo": "{{ base_domain | default('https://gamingapparel.gg') }}/static/images/og-featured.png"
+            },
+            {
+                "@type": "WebSite",
+                "name": "GamingApparel.gg",
+                "url": "{{ base_domain | default('https://gamingapparel.gg') }}",
+                "potentialAction": {
+                    "@type": "SearchAction",
+                    "target": "{{ base_domain | default('https://gamingapparel.gg') }}/search?q={search_term_string}",
+                    "query-input": "required name=search_term_string"
+                }
+            }
+        ]
+    }
+    </script>
+    {% block structured_data %}{% endblock %}
+
     <!-- Compiled, purged Tailwind CSS (built via `npm run build:css` - see package.json).
          NOT loaded from the CDN script: that recompiles the full framework in the
          browser on every page view, which is explicitly unsuitable for production. -->

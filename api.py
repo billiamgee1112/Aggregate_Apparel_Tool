@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, PlainTextResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from markupsafe import Markup
 from typing import Optional, List
 from pydantic import BaseModel
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -17,6 +18,7 @@ import asyncio
 from urllib.parse import urlencode
 from math import ceil
 import re
+from xml.sax.saxutils import escape as xml_escape
 
 DB_NAME = "apparel_aggregator.db"
 
@@ -153,6 +155,73 @@ def _preserved_secondary_qs(category: Optional[str], sort: Optional[str]) -> str
 # Find templates relative to the current file
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
+def _tojson_filter(value):
+    """Safely serializes a Python value to JSON for embedding inside a
+    <script type="application/ld+json"> block. Jinja2Templates (Starlette)
+    doesn't register Flask's 'tojson' filter by default, and manually
+    interpolating strings into JSON-LD in the template itself would be
+    fragile/unsafe for franchise or product names containing quotes,
+    apostrophes, or ampersands (e.g. "Assassin's Creed", "Tom Clancy's
+    Splinter Cell: Blacklist", "Penn & Teller's Smoke and Mirrors").
+    Escapes '<' to '\\u003c' as a standard mitigation against a value
+    containing something like '</script>' breaking out of the tag.
+    Returns a Markup instance so Jinja's autoescaping doesn't re-escape the
+    JSON's own quote characters into HTML entities (&#34;), which would
+    otherwise corrupt the JSON."""
+    return Markup(json.dumps(value, ensure_ascii=False).replace("<", "\\u003c"))
+
+templates.env.filters["tojson"] = _tojson_filter
+
+def _build_product_item_list(products: list, base_domain: str) -> Optional[dict]:
+    """Builds an ItemList JSON-LD payload (Product + Offer per item) for the
+    current page of product cards, for potential rich product results.
+    priceCurrency comes from each product's own stored `currency` column
+    (defaults to USD - see BaseParser.currency for why that's accurate for
+    every currently-tracked store).
+    """
+    if not products:
+        return None
+    elements = []
+    for i, p in enumerate(products, start=1):
+        elements.append({
+            "@type": "ListItem",
+            "position": i,
+            "item": {
+                "@type": "Product",
+                "name": p["product_name"],
+                "image": p["image_url"],
+                "url": p["store_url"],
+                "brand": {"@type": "Brand", "name": p["brand_name"]},
+                "offers": {
+                    "@type": "Offer",
+                    "price": f"{p['current_price']:.2f}",
+                    "priceCurrency": p.get("currency", "USD"),
+                    "availability": "https://schema.org/InStock",
+                    "url": p["store_url"]
+                }
+            }
+        })
+    return {
+        "@context": "https://schema.org",
+        "@type": "ItemList",
+        "itemListElement": elements
+    }
+
+def _build_breadcrumbs(base_domain: str, crumbs: list) -> dict:
+    """Builds a BreadcrumbList JSON-LD payload. 'crumbs' is a list of
+    (name, url_or_None) tuples; url is None for the current/last page."""
+    items = []
+    for i, (name, url) in enumerate(crumbs, start=1):
+        entry = {"@type": "ListItem", "position": i, "name": name}
+        if url:
+            entry["item"] = url
+        items.append(entry)
+    return {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": items
+    }
+
 def get_db_connection():
     conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row
@@ -257,7 +326,8 @@ def _rows_to_products(rows) -> list:
             "brand_name": row["brand_name"],
             "category": row["category"],
             "franchise_tags": json.loads(row["franchise_tags"]),
-            "updated_at": row["updated_at"]
+            "updated_at": row["updated_at"],
+            "currency": row["currency"] if "currency" in row.keys() else "USD"
         })
     return products
 
@@ -314,6 +384,11 @@ def home_index(
 
     products = _rows_to_products(rows)
 
+    structured_data_ld = []
+    item_list = _build_product_item_list(products, BASE_DOMAIN)
+    if item_list:
+        structured_data_ld.append(item_list)
+
     return templates.TemplateResponse(
         request=request,
         name="index.html",
@@ -328,7 +403,8 @@ def home_index(
             "current_franchise": franchise,
             "current_sort": sort,
             "pagination": pagination,
-            "preserved_qs": _preserved_secondary_qs(category, sort)
+            "preserved_qs": _preserved_secondary_qs(category, sort),
+            "structured_data_ld": structured_data_ld
         }
     )
 
@@ -378,7 +454,6 @@ def franchise_landing_ssr(request: Request, franchise_slug: str, category: Optio
         tuple(params) + (PAGE_SIZE, offset)
     )
     rows = cursor.fetchall()
-    conn.close()
 
     # Resolve the human-readable franchise title from the matched rows
     matched_title = cleaned_slug.title()
@@ -391,7 +466,27 @@ def franchise_landing_ssr(request: Request, franchise_slug: str, category: Optio
         except Exception:
             pass
 
+    # Curated SEO intro write-up for this franchise, if one exists yet (see
+    # franchise_content table - populated manually/reviewed before publishing,
+    # not auto-generated). Most franchises won't have one yet; that's fine,
+    # the block simply doesn't render.
+    intro_row = cursor.execute(
+        "SELECT intro_text FROM franchise_content WHERE franchise_name = ?", (matched_title,)
+    ).fetchone()
+    franchise_intro = intro_row["intro_text"] if intro_row else None
+
+    conn.close()
+
     products = _rows_to_products(rows)
+
+    structured_data_ld = [_build_breadcrumbs(BASE_DOMAIN, [
+        ("Home", BASE_DOMAIN),
+        ("Game Collections", None),
+        (matched_title, None),
+    ])]
+    item_list = _build_product_item_list(products, BASE_DOMAIN)
+    if item_list:
+        structured_data_ld.append(item_list)
 
     return templates.TemplateResponse(
         request=request,
@@ -407,7 +502,9 @@ def franchise_landing_ssr(request: Request, franchise_slug: str, category: Optio
             "current_franchise": matched_title,
             "current_sort": sort,
             "pagination": pagination,
-            "preserved_qs": _preserved_secondary_qs(category, sort)
+            "preserved_qs": _preserved_secondary_qs(category, sort),
+            "structured_data_ld": structured_data_ld,
+            "franchise_intro": franchise_intro
         }
     )
 
@@ -445,6 +542,15 @@ def brand_landing_ssr(request: Request, brand_slug: str, category: Optional[str]
 
     products = _rows_to_products(rows)
 
+    structured_data_ld = [_build_breadcrumbs(BASE_DOMAIN, [
+        ("Home", BASE_DOMAIN),
+        ("Brands", None),
+        (matched_brand, None),
+    ])]
+    item_list = _build_product_item_list(products, BASE_DOMAIN)
+    if item_list:
+        structured_data_ld.append(item_list)
+
     return templates.TemplateResponse(
         request=request,
         name="index.html",
@@ -459,7 +565,8 @@ def brand_landing_ssr(request: Request, brand_slug: str, category: Optional[str]
             "current_franchise": None,
             "current_sort": sort,
             "pagination": pagination,
-            "preserved_qs": _preserved_secondary_qs(category, sort)
+            "preserved_qs": _preserved_secondary_qs(category, sort),
+            "structured_data_ld": structured_data_ld
         }
     )
 
@@ -505,6 +612,11 @@ def search_ssr(request: Request, q: Optional[str] = Query(None), category: Optio
 
     conn.close()
 
+    structured_data_ld = []
+    item_list = _build_product_item_list(products, BASE_DOMAIN)
+    if item_list:
+        structured_data_ld.append(item_list)
+
     return templates.TemplateResponse(
         request=request,
         name="index.html",
@@ -520,7 +632,8 @@ def search_ssr(request: Request, q: Optional[str] = Query(None), category: Optio
             "current_query": q,
             "current_sort": sort,
             "pagination": pagination,
-            "preserved_qs": _preserved_secondary_qs(category, sort)
+            "preserved_qs": _preserved_secondary_qs(category, sort),
+            "structured_data_ld": structured_data_ld
         }
     )
 
@@ -571,7 +684,7 @@ def generate_sitemap():
         brand_slug = brand.lower().replace(" ", "-").strip()
         sitemap_entries.append(
             f"""<url>
-                <loc>{base_domain}/brands/{brand_slug}</loc>
+                <loc>{xml_escape(f"{base_domain}/brands/{brand_slug}")}</loc>
                 <changefreq>weekly</changefreq>
                 <priority>0.8</priority>
             </url>"""
@@ -582,7 +695,7 @@ def generate_sitemap():
         slug = franchise.lower().replace(" ", "-").strip()
         sitemap_entries.append(
             f"""<url>
-                <loc>{base_domain}/franchises/{slug}</loc>
+                <loc>{xml_escape(f"{base_domain}/franchises/{slug}")}</loc>
                 <changefreq>weekly</changefreq>
                 <priority>0.8</priority>
             </url>"""

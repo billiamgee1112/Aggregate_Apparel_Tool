@@ -246,7 +246,8 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
                                 franchise_tags=franchise_tags,
                                 franchise_verified=franchise_verified,
                                 category=parser.deduce_category(name, str(s_url)),
-                                description_snippet=metadata.get("description_snippet", "") if isinstance(metadata, dict) else ""
+                                description_snippet=metadata.get("description_snippet", "") if isinstance(metadata, dict) else "",
+                                currency=parser.currency
                             )
                         scraped_items.append(item)
                     except Exception:
@@ -348,7 +349,8 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
                                 franchise_tags=franchise_tags,
                                 franchise_verified=franchise_verified,
                                 category=parser.deduce_category(name, str(s_url)),
-                                description_snippet=metadata.get("description_snippet", "") if isinstance(metadata, dict) else ""
+                                description_snippet=metadata.get("description_snippet", "") if isinstance(metadata, dict) else "",
+                                currency=parser.currency
                             )
                             scraped_items.append(item)
                         except Exception:
@@ -440,7 +442,8 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
                                     franchise_tags=franchise_tags,
                                     franchise_verified=franchise_verified,
                                     category=parser.deduce_category(name, str(s_url)),
-                                    description_snippet=metadata.get("description_snippet", "") if isinstance(metadata, dict) else ""
+                                    description_snippet=metadata.get("description_snippet", "") if isinstance(metadata, dict) else "",
+                                    currency=parser.currency
                                 )
                                 scraped_items.append(item)
                             except Exception:

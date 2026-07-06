@@ -5,13 +5,16 @@
 # pushes the freshly-updated SQLite database up to the cloud-hosted read-only
 # app via scp (OpenSSH client, included by default on Windows 10/11).
 #
-# Configure via environment variables (set them once in your PowerShell
-# profile, or pass them inline before running this script):
+# Defaults below are already set to this project's actual VPS (see
+# MAINTENANCE.md) - running `.\sync_to_cloud.ps1` with no configuration just
+# works. Override any of them via environment variable only if you ever need
+# to point this at a different host (set them once in your PowerShell
+# profile, or inline before running this script):
 #
-#   $env:CLOUD_SSH_HOST     = "203.0.113.10"                 # required - your VPS's public IP or hostname
-#   $env:CLOUD_SSH_USER     = "ubuntu"                        # optional - defaults to "ubuntu"
-#   $env:CLOUD_SSH_KEY      = "$HOME\.ssh\id_ed25519"         # optional - path to your private key
-#   $env:CLOUD_REMOTE_PATH  = "/opt/aggregate_apparel/apparel_aggregator.db"  # optional - defaults shown
+#   $env:CLOUD_SSH_HOST     = "203.0.113.10"                 # overrides the default VPS IP below
+#   $env:CLOUD_SSH_USER     = "ubuntu"                        # overrides the default user below
+#   $env:CLOUD_SSH_KEY      = "$HOME\.ssh\id_ed25519"         # overrides the default key path below
+#   $env:CLOUD_REMOTE_PATH  = "/opt/aggregate_apparel/apparel_aggregator.db"  # overrides the default remote path below
 #   $env:CLOUD_RESTART_SERVICE = "true"                       # optional - restart the remote systemd service after sync
 #
 # Usage:
@@ -29,14 +32,12 @@ function Fail($message) {
     exit 1
 }
 
-# ---- 1. Validate configuration ----
-$RemoteHost = $env:CLOUD_SSH_HOST
-if (-not $RemoteHost) {
-    Fail "CLOUD_SSH_HOST is not set. Example: `$env:CLOUD_SSH_HOST = '203.0.113.10'"
-}
+# ---- 1. Resolve configuration (hardcoded defaults for this project's VPS,
+# overridable via environment variable) ----
+$RemoteHost = if ($env:CLOUD_SSH_HOST) { $env:CLOUD_SSH_HOST } else { "REDACTED_VPS_IP" }
 $RemoteUser = if ($env:CLOUD_SSH_USER) { $env:CLOUD_SSH_USER } else { "ubuntu" }
 $RemotePath = if ($env:CLOUD_REMOTE_PATH) { $env:CLOUD_REMOTE_PATH } else { "/opt/aggregate_apparel/apparel_aggregator.db" }
-$SshKey = $env:CLOUD_SSH_KEY
+$SshKey = if ($env:CLOUD_SSH_KEY) { $env:CLOUD_SSH_KEY } else { "$HOME\.ssh\id_ed25519" }
 $RestartService = $env:CLOUD_RESTART_SERVICE -eq "true"
 
 $LocalDb = Join-Path $PSScriptRoot "apparel_aggregator.db"

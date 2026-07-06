@@ -12,6 +12,10 @@ class GamingClothingItem(BaseModel):
     is_active: Optional[bool] = True
     category: str
     description_snippet: Optional[str] = None
+    # ISO 4217 currency code the scraped price is denominated in. Defaults to
+    # USD (see BaseParser.currency for why); explicitly set per-item from the
+    # originating parser's `currency` property in scraper.py.
+    currency: str = "USD"
     # Whether franchise_tags came from a trustworthy signal (store's own
     # scraped label, or a match against the curated/Wikidata-backed keyword
     # table) vs. a naive title-tokenizer/URL-slug guess with no independent

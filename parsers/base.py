@@ -35,6 +35,17 @@ class BaseParser(ABC):
     def first_page_override(self) -> str:
         return None
 
+    @property
+    def currency(self) -> str:
+        """ISO 4217 currency code that this store's scraped prices are
+        denominated in. Defaults to USD since every currently-tracked store
+        serves USD pricing to an unauthenticated US-based scraper request
+        (verified against live pages, e.g. Insert Coin shows "$XX.XX" by
+        default despite having its own currency-switcher). Override this in
+        a specific parser subclass if a future store is added that actually
+        prices in a different currency (e.g. a GBP/EUR-only storefront)."""
+        return "USD"
+
     @abstractmethod
     def parse_product(self, product_el: BeautifulSoup, base_url: str) -> tuple:
         """Parses a raw product element.
