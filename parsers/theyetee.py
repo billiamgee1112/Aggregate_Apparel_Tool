@@ -27,7 +27,7 @@ class TheYeteeParser(ShopifyJsonParser):
         "the yetee", "angyfrog", "astrawitch", "chilluminati", "gazola",
         "marc junker", "miski", "natasha petrovic", "pigboom", "pixel eyebat",
         "prozd", "sorry we're closed", "thanuki", "superjumbo",
-        "games done quick", "sgdq 2026",
+        "sgdq 2026",
     }
 
     # Publisher/studio names (not franchises themselves) mapped to their
