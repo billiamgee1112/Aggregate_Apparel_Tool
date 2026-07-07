@@ -28,7 +28,7 @@ Do these **in this exact order**. Run everything from the
 `Aggregate_Apparel_Tool` directory with your virtual environment activated.
 
 ### 1. Run the scraper
-```powershell
+```powershell: cd "C:\Users\billi\Documents\Aggregate Site Desktop Side\Aggregate_Apparel_Tool"
 py scraper.py
 ```
 This re-scrapes all 19 tracked storefronts (takes several minutes - Artsholic's
