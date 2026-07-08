@@ -535,11 +535,10 @@ def franchise_landing_ssr(request: Request, franchise_slug: str, category: Optio
 
     breadcrumb_items = [
         ("Home", BASE_DOMAIN),
-        ("Game Collections", None),
-        (matched_title, f"{BASE_DOMAIN}/franchises/{franchise_slug}" if matched_brand else None),
+        (matched_title, f"{BASE_DOMAIN}/franchises/{franchise_slug}"),
     ]
     if matched_brand:
-        breadcrumb_items.append((matched_brand, None))
+        breadcrumb_items.append((matched_brand, f"{BASE_DOMAIN}/franchises/{franchise_slug}?brand={brand}"))
     structured_data_ld = [_build_breadcrumbs(BASE_DOMAIN, breadcrumb_items)]
     item_list = _build_product_item_list(products, BASE_DOMAIN)
     if item_list:
@@ -626,11 +625,10 @@ def brand_landing_ssr(request: Request, brand_slug: str, category: Optional[str]
 
     breadcrumb_items = [
         ("Home", BASE_DOMAIN),
-        ("Brands", None),
-        (matched_brand, f"{BASE_DOMAIN}/brands/{brand_slug}" if matched_franchise else None),
+        (matched_brand, f"{BASE_DOMAIN}/brands/{brand_slug}"),
     ]
     if matched_franchise:
-        breadcrumb_items.append((matched_franchise, None))
+        breadcrumb_items.append((matched_franchise, f"{BASE_DOMAIN}/brands/{brand_slug}?franchise={franchise}"))
     structured_data_ld = [_build_breadcrumbs(BASE_DOMAIN, breadcrumb_items)]
     item_list = _build_product_item_list(products, BASE_DOMAIN)
     if item_list:
