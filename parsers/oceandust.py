@@ -8,6 +8,18 @@ class OceanDustParser(ShopifyJsonParser):
     store_root = "https://oceandust.co"
     url_pattern = "https://oceandust.co/collections/video-games/products.json?limit=250&page={page_num}"
 
+    # Site relaunched behind Shopify's native password-gate page (the
+    # password itself is displayed openly on the landing page as a
+    # marketing "unlock the archive" gimmick, not real access control).
+    # scraper.py submits this once per run before fetching any JSON feeds.
+    store_password = "NOSTALGIA"
+
+    # The relaunch also added Cloudflare bot-challenge protection in front
+    # of products.json (seen returning a "Just a moment..." 429 challenge
+    # page instead of JSON). A much slower, more human-paced request cadence
+    # is less likely to trip it than the default 1-2.5s used by other stores.
+    request_delay_range_ms = (5000, 9000)
+
     # Titles follow a strict "Video Games '<Franchise Name>' <Product Type>"
     # pattern (e.g. "Video Games 'Bayonetta' T-Shirt", "Video Games 'Crash
     # Bandicoot: Warped' Oversized Hoodie") - the franchise name is always

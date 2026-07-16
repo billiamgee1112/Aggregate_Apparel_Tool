@@ -137,6 +137,49 @@ async def apply_stealth_scripts(page):
     """)
 
 
+async def unlock_shopify_password_page(page, parser: BaseParser):
+    """Submits Shopify's native storefront password gate once per store
+    scrape, so the rest of the session (same browser context/cookies) can
+    reach products.json normally. Shopify sets a 'storefront_digest' cookie
+    on success that persists for the context's lifetime - no need to repeat
+    this per page request."""
+    brand_name = parser.brand_name
+    store_root = getattr(parser, "store_root", None)
+    if not store_root:
+        print(f"[{brand_name}] WARNING: store_password set but no store_root defined - skipping unlock.")
+        return
+
+    try:
+        # Navigate to the dedicated /password route directly rather than the
+        # store root - some themes only render the password form inside a
+        # hidden modal on the homepage (triggered by a JS click), whereas
+        # /password always renders it inline and visible.
+        await page.goto(f"{store_root.rstrip('/')}/password", wait_until="domcontentloaded")
+        password_input = page.locator('input[name="password"]')
+        if await password_input.count() == 0:
+            print(f"[{brand_name}] No password gate encountered (already unlocked or none present).")
+            return
+
+        print(f"[{brand_name}] Password gate detected - submitting stored password.")
+        # Many themes (incl. this one) keep the password form hidden inside a
+        # popup/modal shown only via a "#password-popup" anchor-link click
+        # (a pure-CSS :target reveal) - click it first if present.
+        popup_trigger = page.locator('a[href="#password-popup"]')
+        if await popup_trigger.count() > 0:
+            await popup_trigger.first.click()
+        await password_input.first.wait_for(state="visible", timeout=10000)
+        await password_input.first.fill(parser.store_password)
+        await page.locator('form[action="/password"] button[type="submit"], form[action="/password"] input[type="submit"]').first.click()
+        await page.wait_for_load_state("domcontentloaded")
+        # Jumping straight from a form submit into rapid-fire JSON API
+        # requests is a strong bot signal - pause like a real visitor would
+        # before the pagination loop starts hammering the feed.
+        await page.wait_for_timeout(random.uniform(3000, 6000))
+        print(f"[{brand_name}] Password gate unlocked.")
+    except Exception as e:
+        print(f"[{brand_name}] WARNING: Failed to unlock password gate ({e}) - subsequent fetches may fail.")
+
+
 async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[GamingClothingItem]:
     """Scrapes a single storefront using a dedicated, isolated stealth context per domain."""
     brand_name = parser.brand_name
@@ -189,6 +232,9 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
     # Inject stealth scripts before any page code loads
     await apply_stealth_scripts(page)
     print(f"[{brand_name}] Task Started: Opened secure, isolated context with User-Agent: {user_agent}")
+
+    if parser.store_password:
+        await unlock_shopify_password_page(page, parser)
 
     try:
         # CRITICAL FIX: Base routing purely on verified pagination types
@@ -386,7 +432,7 @@ async def scrape_single_store(browser: Browser, parser: BaseParser) -> list[Gami
                     target_url = collection_pattern.format(page_num=page_num)
                     print(f"[{brand_name}] Fetching JSON feed page {page_num}: {target_url}")
 
-                    think_time = random.uniform(1000, 2500)
+                    think_time = random.uniform(*parser.request_delay_range_ms)
                     await page.wait_for_timeout(think_time)
 
                     try:

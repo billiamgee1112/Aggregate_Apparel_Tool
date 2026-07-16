@@ -32,6 +32,15 @@ class BaseParser(ABC):
         return 1  # Default fallback for infinite_scroll with single landing URL
 
     @property
+    def request_delay_range_ms(self) -> tuple:
+        """(min, max) random delay in milliseconds between paginated feed
+        requests for this store. Default is a light 1-2.5s "think time".
+        Override with a slower range for stores known to have stricter bot
+        protection (e.g. Cloudflare-fronted stores), since a slower, more
+        human-paced request cadence is less likely to trip a challenge."""
+        return (1000, 2500)
+
+    @property
     def first_page_override(self) -> str:
         return None
 
@@ -45,6 +54,17 @@ class BaseParser(ABC):
         a specific parser subclass if a future store is added that actually
         prices in a different currency (e.g. a GBP/EUR-only storefront)."""
         return "USD"
+
+    @property
+    def store_password(self) -> str:
+        """Storefront password for stores gated behind Shopify's native
+        'coming soon' password page (Shopify auto-shows a password form at
+        /password and blocks every other route, including products.json,
+        until it's submitted). None means the store isn't password-gated.
+        Override with the literal password in a specific parser subclass -
+        these are typically published openly on the store's own landing
+        page as a marketing gimmick, not a real access control."""
+        return None
 
     @abstractmethod
     def parse_product(self, product_el: BeautifulSoup, base_url: str) -> tuple:
