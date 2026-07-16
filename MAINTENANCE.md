@@ -31,12 +31,39 @@ Do these **in this exact order**. Run everything from the
 ```powershell: cd "C:\Users\billi\Documents\Aggregate Site Desktop Side\Aggregate_Apparel_Tool"
 py scraper.py
 ```
-This re-scrapes all 19 tracked storefronts (takes several minutes - Artsholic's
+This re-scrapes all 18 automated storefronts (takes several minutes - Artsholic's
 ~38-page pagination crawl is the slowest part) and automatically runs
 `franchise_discovery.py` afterward with its default budget (25 new Wikidata
 checks per run). Do not interrupt this once it starts.
 
-### 2. Spot-check the results locally
+### 2. Manually refresh OceanDust
+OceanDust added a Cloudflare bot-challenge in front of their `products.json`
+feed that the automated scraper can't reliably get past (see
+`parsers/oceandust.py` and `import_oceandust_manual.py` for the full
+background), so it's excluded from `ACTIVE_PARSERS` and refreshed manually
+instead, in the same weekly session:
+
+1. In a real browser, go to `https://oceandust.co` and enter the password
+   shown on the landing page (it changes over time - use whatever's
+   currently displayed, not necessarily "NOSTALGIA").
+2. Visit `https://oceandust.co/collections/video-games/products.json?limit=250&page=1`,
+   copy the raw JSON, paste it into a new file named
+   `oceandust_manual_page1.json` in the project root, and save.
+3. Repeat for `page=2`, `page=3`, etc. (increment the page number) until a
+   page returns `{"products": []}` - save each as `oceandust_manual_page2.json`,
+   `oceandust_manual_page3.json`, and so on. As of writing there are 2 pages
+   (422 total products).
+4. Run:
+   ```powershell
+   py import_oceandust_manual.py
+   ```
+   This upserts OceanDust's products (scoped only to OceanDust - it never
+   touches any other store's rows) and marks any previously-imported
+   OceanDust product no longer present as inactive.
+5. Delete the `oceandust_manual_page*.json` files afterward - they're just
+   scratch input, not meant to be kept or committed.
+
+### 3. Spot-check the results locally
 Start the local dev server if it isn't already running:
 ```powershell
 uvicorn api:app --reload
@@ -51,12 +78,12 @@ Then open `http://127.0.0.1:8000` and:
 - If anything looks off, it's much cheaper to catch and fix it now (locally)
   than after it's live. See the "Fixing a bad franchise tag" section below.
 
-### 3. Push the database live
+### 4. Push the database live
 ```powershell
 .\sync_to_cloud.ps1 -SkipScrape
 ```
 (`-SkipScrape` reuses the database you already scraped and checked in steps
-1-2, rather than scraping a second time.) You'll be prompted for your SSH key
+1-3, rather than scraping a second time.) You'll be prompted for your SSH key
 passphrase. No service restart is needed for a database-only push (uvicorn
 opens a fresh SQLite connection per request), **unless** you also changed any
 `.py`/`.html`/CSS files this session, in which case follow the "Deploying
@@ -68,9 +95,9 @@ command is:
 scp apparel_aggregator.db ubuntu@REDACTED_VPS_IP:/opt/aggregate_apparel/apparel_aggregator.db
 ```
 
-### 4. Verify it's live
+### 5. Verify it's live
 Open `https://gamingapparel.gg` and confirm the product count / recent
-additions match what you saw locally in step 2.
+additions match what you saw locally in step 3.
 
 ---
 
