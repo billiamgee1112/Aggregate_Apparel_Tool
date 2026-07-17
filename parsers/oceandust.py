@@ -35,9 +35,23 @@ class OceanDustParser(ShopifyJsonParser):
     # title (the closing delimiter) rather than stopping at the first one.
     _TITLE_PATTERN = re.compile(r"Video Games\s*'(.+)'")
 
+    # This store numbers multiple distinct print designs of the SAME game as
+    # separate products by appending "v1"/"v2"/"V3" etc. to the franchise
+    # name (e.g. "Crash Bandicoot v1" and "Crash Bandicoot v2" are two
+    # different t-shirt graphics for the same game, not different games) -
+    # stripping it merges them back into one franchise tag instead of
+    # fragmenting the Game Collections dropdown with near-duplicates.
+    _VERSION_SUFFIX_PATTERN = re.compile(r"\s+[vV]\d+$")
+
     def _deduce_via_strategy(self, product) -> str:
         title = (product.get("title") or "").strip()
         m = self._TITLE_PATTERN.search(title)
-        if m:
-            return m.group(1).strip()
-        return ""
+        if not m:
+            return ""
+        name = m.group(1).strip()
+        # Collapse any doubled/irregular internal whitespace (seen on a
+        # chunk of this store's titles, e.g. "Zelda:  Majora's Mask" with
+        # two spaces after the colon).
+        name = re.sub(r"\s+", " ", name)
+        name = self._VERSION_SUFFIX_PATTERN.sub("", name).strip()
+        return name
