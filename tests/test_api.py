@@ -39,15 +39,37 @@ def test_homepage_discount_sort_succeeds():
 
 
 def test_franchise_landing_page():
-    """Franchise landing pages should render even for an unknown/empty slug."""
+    """Franchise landing pages should 404 for a franchise that doesn't exist
+    in the catalog (e.g. a stale indexed URL for a tag that's since been
+    merged/renamed - see franchise_mappings), but render normally (200) for
+    a real one."""
     response = client.get("/franchises/some-unlikely-franchise-slug-zzz")
+    assert response.status_code == 404
+
+    import sqlite3
+    import json
+    conn = sqlite3.connect("apparel_aggregator.db")
+    row = conn.execute("SELECT franchise_tags FROM products WHERE is_active = 1 LIMIT 1").fetchone()
+    conn.close()
+    real_franchise = json.loads(row[0])[0]
+    slug = real_franchise.lower().replace(" ", "-")
+    response = client.get(f"/franchises/{slug}")
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
 
 
 def test_brand_landing_page():
-    """Brand landing pages should render even for an unknown/empty slug."""
+    """Brand landing pages should 404 for a brand that doesn't exist in the
+    catalog, but render normally (200) for a real one."""
     response = client.get("/brands/some-unlikely-brand-zzz")
+    assert response.status_code == 404
+
+    import sqlite3
+    conn = sqlite3.connect("apparel_aggregator.db")
+    row = conn.execute("SELECT DISTINCT brand_name FROM products WHERE is_active = 1 LIMIT 1").fetchone()
+    conn.close()
+    real_brand = row[0]
+    response = client.get(f"/brands/{real_brand.lower()}")
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
 

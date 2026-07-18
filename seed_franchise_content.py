@@ -189,7 +189,32 @@ drafts = [
      "By utilizing frame-perfect mechanical inputs, software glitches, and deep routing strategies, players showcase "
      "everything from retro arcade classics to modern masterpieces. Beyond world-record-setting gameplay, GDQ is an absolute charitable powerhouse. "
      "Since its inception in 2010, the organization has raised over 60 million dollars for globally recognized non-profits. Its flagship winter and "
-     "summer events directly benefit life-saving organizations including the Prevent Cancer Foundation and Doctors Without Borders.")
+     "summer events directly benefit life-saving organizations including the Prevent Cancer Foundation and Doctors Without Borders."),
+
+    ("Contra",
+     "Contra is a classic run-and-gun video game series that has been popular since the 1980s. "
+     "The apparel often features iconic imagery from the games, such as the Konami code, the main characters, and retro 8-bit graphics. "
+     "This collection gathers Contra apparel from a mix of official and fan-made sources, perfect for fans of the franchise."),
+
+    ("Crash Bandicoot",
+     "Crash Bandicoot is a platforming video game series that has been popular since the 1990s. "
+     "The apparel often features the titular character, his friends, and iconic elements from the games. "
+     "This collection gathers Crash Bandicoot apparel from a mix of official and fan-made sources, perfect for fans of the franchise."),
+
+     ("Yakuza",
+      "Yakuza is an action-adventure video game series that has been popular since the mid-2000s. "
+      "The apparel often features characters, symbols, and iconic elements from the games. "
+      "This collection gathers Yakuza apparel from a mix of official and fan-made sources, perfect for fans of the franchise."),
+
+    ("Dark Souls",
+     "Dark Souls is an action role-playing video game series known for its challenging gameplay and dark fantasy setting. "
+     "The apparel often features iconic imagery from the games, such as the bonfire, the Estus Flask, and various character designs. "
+     "This collection gathers Dark Souls apparel from a mix of official and fan-made sources, perfect for fans of the franchise."),
+
+    ("The Witcher",
+     "The Witcher is an action role-playing video game series based on the book series by Andrzej Sapkowski. "
+     "The apparel often features characters, symbols, and iconic elements from the games, such as Geralt, the Wolf School emblem, and various monsters. "
+     "This collection gathers The Witcher apparel from a mix of official and fan-made sources, perfect for fans of the franchise.")
 ]
 
 for name, text in drafts:

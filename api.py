@@ -4,7 +4,7 @@ import json
 import os
 from collections import Counter
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Query, Request
+from fastapi import FastAPI, Query, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, PlainTextResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -483,6 +483,21 @@ def franchise_landing_ssr(request: Request, franchise_slug: str, category: Optio
     brand_stats, popular_franchises, all_franchises = fetch_common_stats(conn)
     cursor = conn.cursor()
 
+    # Real 404 (not a 200 with an empty grid) when this franchise doesn't
+    # exist in the catalog at all - e.g. an old sitemap/indexed URL for a
+    # franchise tag that's since been merged/renamed into a different
+    # canonical tag (see franchise_mappings). Checked independently of any
+    # brand/category filter below, since a valid franchise + an unrelated
+    # filter combo legitimately CAN have 0 results without being a 404 -
+    # this only catches the franchise itself no longer existing anywhere.
+    franchise_exists = cursor.execute(
+        "SELECT 1 FROM products WHERE is_active = 1 AND LOWER(franchise_tags) LIKE ? LIMIT 1",
+        (f"%{cleaned_slug.lower()}%",)
+    ).fetchone()
+    if not franchise_exists:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Franchise not found")
+
     where = " WHERE is_active = 1 AND LOWER(franchise_tags) LIKE ?"
     params = [f"%{cleaned_slug.lower()}%"]
     if brand:
@@ -578,6 +593,16 @@ def brand_landing_ssr(request: Request, brand_slug: str, category: Optional[str]
     brand_stats, popular_franchises, all_franchises = fetch_common_stats(conn)
     cursor = conn.cursor()
 
+    # Real 404 (not a 200 with an empty grid) when this brand doesn't exist
+    # in the catalog at all - mirrors the same check on the franchise route.
+    brand_exists = cursor.execute(
+        "SELECT 1 FROM products WHERE is_active = 1 AND LOWER(brand_name) = ? LIMIT 1",
+        (brand_slug.strip().lower(),)
+    ).fetchone()
+    if not brand_exists:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Brand not found")
+
     where = " WHERE is_active = 1 AND LOWER(brand_name) = ?"
     params = [brand_slug.strip().lower()]
     cleaned_franchise_slug = ""
@@ -618,6 +643,19 @@ def brand_landing_ssr(request: Request, brand_slug: str, category: Optional[str]
                 )
             except Exception:
                 pass
+
+    # When a franchise is stacked on top of a brand, treat the /franchises/
+    # URL as the single canonical version of this combined content instead
+    # of self-referencing - both /brands/{x}?franchise=Y and
+    # /franchises/{y}?brand=X otherwise render the exact same product set
+    # under two different canonical URLs, which is exactly the ambiguity
+    # that caused Search Console's "Google chose a different canonical"
+    # warning. Franchise is arbitrarily treated as the primary facet since
+    # /franchises/{slug} pages carry more unique content (the curated SEO
+    # intro), so that's the version worth Google actually indexing.
+    if matched_franchise:
+        franchise_url_slug = matched_franchise.lower().replace(" ", "-")
+        pagination["canonical"] = f"{BASE_DOMAIN}/franchises/{franchise_url_slug}?brand={brand_slug}"
 
     conn.close()
 
