@@ -214,7 +214,32 @@ drafts = [
     ("The Witcher",
      "The Witcher is an action role-playing video game series based on the book series by Andrzej Sapkowski. "
      "The apparel often features characters, symbols, and iconic elements from the games, such as Geralt, the Wolf School emblem, and various monsters. "
-     "This collection gathers The Witcher apparel from a mix of official and fan-made sources, perfect for fans of the franchise.")
+     "This collection gathers The Witcher apparel from a mix of official and fan-made sources, perfect for fans of the franchise."),
+# Update for 7/24
+    ("Halo",
+     "Halo is a first-person shooter video game series that has been popular since the early 2000s. "
+     "The apparel often features characters, symbols, and iconic elements from the games, such as Master Chief, the UNSC emblem, and various alien species. "
+     "This collection gathers Halo apparel from a mix of official and fan-made sources, perfect for fans of the franchise."),
+
+    ("Metroid",
+     "Metroid is a science fiction action-adventure video game series that has been popular since the 1980s. "
+     "The apparel often features characters, symbols, and iconic elements from the games, such as Samus Aran, the Chozo emblem, and various alien species. "
+     "This collection gathers Metroid apparel from a mix of official and fan-made sources, perfect for fans of the franchise."),
+
+    ("God of War",
+     "God of War is an action-adventure video game series that has been popular since the mid-2000s. "
+     "The apparel often features characters, symbols, and iconic elements from the games, such as Kratos, the Leviathan Axe, and various mythological creatures. "
+     "This collection gathers God of War apparel from a mix of official and fan-made sources, perfect for fans of the franchise."),
+
+    ("DOOM",
+     "DOOM is a first-person shooter video game series that has been popular since the 1990s. "
+     "The apparel often features characters, symbols, and iconic elements from the games, such as the Doom Slayer, demons, and various weapons. "
+     "This collection gathers DOOM apparel from a mix of official and fan-made sources, perfect for fans of the franchise."),
+
+    ("Resident Evil",
+     "Resident Evil is a survival horror video game series that has been popular since the 1990s. "
+     "The apparel often features characters, symbols, and iconic elements from the games, such as Leon S. Kennedy, Jill Valentine, and various zombies. "
+     "This collection gathers Resident Evil apparel from a mix of official and fan-made sources, perfect for fans of the franchise.")
 ]
 
 for name, text in drafts:
