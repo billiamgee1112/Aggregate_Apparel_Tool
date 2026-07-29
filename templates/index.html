@@ -1,7 +1,7 @@
 <!-- templates/index.html -->
 {% extends "base.html" %}
 {% block canonical %}{{ pagination.canonical if pagination else (base_domain | default('https://gamingapparel.gg')) }}{% endblock %}
-{% block robots %}{% if current_query %}noindex, follow{% else %}index, follow{% endif %}{% endblock %}
+{% block robots %}{% if current_query or current_category or (current_sort and current_sort != 'newest') or (pagination and pagination.current_page > 1) or (current_brand and current_franchise) %}noindex, follow{% else %}index, follow{% endif %}{% endblock %}
 
 {% block title %}
     {% if current_query %}Search results for "{{ current_query }}" | GamingApparel
