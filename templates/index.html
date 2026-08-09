@@ -110,7 +110,7 @@
                     <div class="flex flex-col gap-2 mt-4 max-h-80 overflow-y-auto pr-1">
                         <a href="/{{ preserved_qs_brand | default('') }}" class="text-sm font-medium hover:text-amber-500 text-gray-300 {% if not current_brand %}text-amber-500 font-bold{% endif %}">All Brands</a>
                         {% for brand, count in brand_stats.items() %}
-                            <a href="/brands/{{ brand | lower }}{{ preserved_qs_brand | default('') }}" class="text-sm font-medium flex justify-between items-center text-gray-300 hover:text-amber-500 transition-colors {% if current_brand | lower == brand | lower %}text-amber-500 font-bold{% endif %}">
+                            <a href="/brands/{{ brand | lower | replace(' ', '-') }}{{ preserved_qs_brand | default('') }}" class="text-sm font-medium flex justify-between items-center text-gray-300 hover:text-amber-500 transition-colors {% if current_brand | lower == brand | lower %}text-amber-500 font-bold{% endif %}">
                                 <span>{{ brand }}</span>
                                 <span class="text-xs bg-gray-800 text-gray-400 px-2.5 py-0.5 rounded-full font-bold">{{ count }}</span>
                             </a>
@@ -166,7 +166,7 @@
                         <div class="flex flex-wrap gap-2">
                             <a href="/{{ preserved_qs_brand | default('') }}" class="text-xs font-semibold rounded px-2.5 py-1.5 transition-colors {% if not current_brand %}bg-amber-500 text-gray-950{% else %}bg-gray-800 text-gray-300 hover:bg-gray-700{% endif %}">All Brands</a>
                             {% for brand, count in brand_stats.items() %}
-                                <a href="/brands/{{ brand | lower }}{{ preserved_qs_brand | default('') }}" class="text-xs font-semibold rounded px-2.5 py-1.5 transition-colors {% if current_brand | lower == brand | lower %}bg-amber-500 text-gray-950{% else %}bg-gray-800 text-gray-300 hover:bg-gray-700{% endif %}">{{ brand }}</a>
+                                <a href="/brands/{{ brand | lower | replace(' ', '-') }}{{ preserved_qs_brand | default('') }}" class="text-xs font-semibold rounded px-2.5 py-1.5 transition-colors {% if current_brand | lower == brand | lower %}bg-amber-500 text-gray-950{% else %}bg-gray-800 text-gray-300 hover:bg-gray-700{% endif %}">{{ brand }}</a>
                             {% endfor %}
                         </div>
                     </div>

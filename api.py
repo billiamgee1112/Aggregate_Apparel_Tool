@@ -593,18 +593,25 @@ def brand_landing_ssr(request: Request, brand_slug: str, category: Optional[str]
     brand_stats, popular_franchises, all_franchises = fetch_common_stats(conn)
     cursor = conn.cursor()
 
+    # Deduce slug to name format: "the-yetee" -> "the yetee" (mirrors the
+    # franchise route's handling - without this, the sitemap's own hyphenated
+    # brand URLs 404 for every multi-word brand name, while only a raw
+    # space/mixed-case variant discovered via internal links actually
+    # resolves - a real bug that created duplicate URLs for the same brand).
+    cleaned_brand_slug = brand_slug.replace("-", " ").strip()
+
     # Real 404 (not a 200 with an empty grid) when this brand doesn't exist
     # in the catalog at all - mirrors the same check on the franchise route.
     brand_exists = cursor.execute(
         "SELECT 1 FROM products WHERE is_active = 1 AND LOWER(brand_name) = ? LIMIT 1",
-        (brand_slug.strip().lower(),)
+        (cleaned_brand_slug.lower(),)
     ).fetchone()
     if not brand_exists:
         conn.close()
         raise HTTPException(status_code=404, detail="Brand not found")
 
     where = " WHERE is_active = 1 AND LOWER(brand_name) = ?"
-    params = [brand_slug.strip().lower()]
+    params = [cleaned_brand_slug.lower()]
     cleaned_franchise_slug = ""
     if franchise:
         cleaned_franchise_slug = franchise.replace("-", " ").strip()
@@ -617,7 +624,11 @@ def brand_landing_ssr(request: Request, brand_slug: str, category: Optional[str]
 
     total_count = cursor.execute("SELECT COUNT(*) FROM products" + where, tuple(params)).fetchone()[0]
 
-    pagination = build_pagination(f"/brands/{brand_slug}", {"category": category, "franchise": franchise}, sort, page, total_count)
+    # Always paginate/canonicalize against the properly-slugified form (lower
+    # + spaces->hyphens) rather than whatever raw slug the URL was actually
+    # accessed with, so every access pattern converges on one canonical URL.
+    canonical_brand_slug = cleaned_brand_slug.lower().replace(" ", "-")
+    pagination = build_pagination(f"/brands/{canonical_brand_slug}", {"category": category, "franchise": franchise}, sort, page, total_count)
     offset = (pagination["current_page"] - 1) * PAGE_SIZE
 
     cursor.execute(
@@ -627,7 +638,7 @@ def brand_landing_ssr(request: Request, brand_slug: str, category: Optional[str]
     rows = cursor.fetchall()
 
     # Track real brand title
-    matched_brand = brand_slug.title()
+    matched_brand = cleaned_brand_slug.title()
     if rows:
         matched_brand = rows[0]["brand_name"]
 
@@ -655,7 +666,7 @@ def brand_landing_ssr(request: Request, brand_slug: str, category: Optional[str]
     # intro), so that's the version worth Google actually indexing.
     if matched_franchise:
         franchise_url_slug = matched_franchise.lower().replace(" ", "-")
-        pagination["canonical"] = f"{BASE_DOMAIN}/franchises/{franchise_url_slug}?brand={brand_slug}"
+        pagination["canonical"] = f"{BASE_DOMAIN}/franchises/{franchise_url_slug}?brand={canonical_brand_slug}"
 
     conn.close()
 
@@ -663,10 +674,10 @@ def brand_landing_ssr(request: Request, brand_slug: str, category: Optional[str]
 
     breadcrumb_items = [
         ("Home", BASE_DOMAIN),
-        (matched_brand, f"{BASE_DOMAIN}/brands/{brand_slug}"),
+        (matched_brand, f"{BASE_DOMAIN}/brands/{canonical_brand_slug}"),
     ]
     if matched_franchise:
-        breadcrumb_items.append((matched_franchise, f"{BASE_DOMAIN}/brands/{brand_slug}?franchise={franchise}"))
+        breadcrumb_items.append((matched_franchise, f"{BASE_DOMAIN}/brands/{canonical_brand_slug}?franchise={franchise}"))
     structured_data_ld = [_build_breadcrumbs(BASE_DOMAIN, breadcrumb_items)]
     item_list = _build_product_item_list(products, BASE_DOMAIN)
     if item_list:
