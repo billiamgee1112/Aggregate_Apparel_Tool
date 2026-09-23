@@ -13,6 +13,13 @@ node_modules/
 # Ignore SQLite local databases
 *.db
 
+# Ignore scratch/output data files (not part of the actual pipeline - see
+# MAINTENANCE.md; products.json is a stale one-off export, and the OceanDust
+# manual_page files are scratch input meant to be deleted after each weekly
+# import, not committed)
+products.json
+oceandust_manual_page*.json
+
 # Ignore Python runtime files and caches
 __pycache__/
 *.pyc

@@ -5,13 +5,11 @@
 # pushes the freshly-updated SQLite database up to the cloud-hosted read-only
 # app via scp (OpenSSH client, included by default on Windows 10/11).
 #
-# Defaults below are already set to this project's actual VPS (see
-# MAINTENANCE.md) - running `.\sync_to_cloud.ps1` with no configuration just
-# works. Override any of them via environment variable only if you ever need
-# to point this at a different host (set them once in your PowerShell
-# profile, or inline before running this script):
+# This script has no hardcoded host - your VPS IP is only ever kept locally
+# (never committed to the repo). Set these once in your PowerShell profile
+# (see MAINTENANCE.md for the actual values used for this project):
 #
-#   $env:CLOUD_SSH_HOST     = "203.0.113.10"                 # overrides the default VPS IP below
+#   $env:CLOUD_SSH_HOST     = "203.0.113.10"                 # required - your VPS IP
 #   $env:CLOUD_SSH_USER     = "ubuntu"                        # overrides the default user below
 #   $env:CLOUD_SSH_KEY      = "$HOME\.ssh\id_ed25519"         # overrides the default key path below
 #   $env:CLOUD_REMOTE_PATH  = "/opt/aggregate_apparel/apparel_aggregator.db"  # overrides the default remote path below
@@ -32,9 +30,12 @@ function Fail($message) {
     exit 1
 }
 
-# ---- 1. Resolve configuration (hardcoded defaults for this project's VPS,
-# overridable via environment variable) ----
-$RemoteHost = if ($env:CLOUD_SSH_HOST) { $env:CLOUD_SSH_HOST } else { "REDACTED_VPS_IP" }
+# ---- 1. Resolve configuration (no host is hardcoded - set CLOUD_SSH_HOST in
+# your local PowerShell profile so the real VPS IP never lives in the repo) ----
+if (-not $env:CLOUD_SSH_HOST) {
+    Fail "CLOUD_SSH_HOST is not set. Set `$env:CLOUD_SSH_HOST to your VPS IP (see MAINTENANCE.md), e.g. in your PowerShell profile."
+}
+$RemoteHost = $env:CLOUD_SSH_HOST
 $RemoteUser = if ($env:CLOUD_SSH_USER) { $env:CLOUD_SSH_USER } else { "ubuntu" }
 $RemotePath = if ($env:CLOUD_REMOTE_PATH) { $env:CLOUD_REMOTE_PATH } else { "/opt/aggregate_apparel/apparel_aggregator.db" }
 $SshKey = if ($env:CLOUD_SSH_KEY) { $env:CLOUD_SSH_KEY } else { "$HOME\.ssh\id_ed25519" }

@@ -90,9 +90,10 @@ opens a fresh SQLite connection per request), **unless** you also changed any
 code changes" section below first.
 
 If you'd rather push manually instead of using the script, the equivalent
-command is:
+command is (substitute your actual VPS IP - kept locally only, never
+committed to this repo):
 ```powershell
-scp apparel_aggregator.db ubuntu@REDACTED_VPS_IP:/opt/aggregate_apparel/apparel_aggregator.db
+scp apparel_aggregator.db ubuntu@<VPS_IP>:/opt/aggregate_apparel/apparel_aggregator.db
 ```
 
 ### 5. Verify it's live
@@ -138,15 +139,15 @@ tools), but it's good practice to keep the whole codebase in sync anyway.
    ```powershell
    py -m pytest tests/ -q
    ```
-3. Push whichever files changed, for example:
+3. Push whichever files changed, for example (substitute your actual VPS IP):
    ```powershell
-   scp api.py database.py models.py ubuntu@REDACTED_VPS_IP:/opt/aggregate_apparel/
-   scp templates/index.html templates/base.html ubuntu@REDACTED_VPS_IP:/opt/aggregate_apparel/templates/
-   scp static/css/tailwind.css ubuntu@REDACTED_VPS_IP:/opt/aggregate_apparel/static/css/tailwind.css
+   scp api.py database.py models.py ubuntu@<VPS_IP>:/opt/aggregate_apparel/
+   scp templates/index.html templates/base.html ubuntu@<VPS_IP>:/opt/aggregate_apparel/templates/
+   scp static/css/tailwind.css ubuntu@<VPS_IP>:/opt/aggregate_apparel/static/css/tailwind.css
    ```
 4. Restart the service so the new code takes effect:
    ```powershell
-   ssh ubuntu@REDACTED_VPS_IP "sudo systemctl restart aggregate-apparel && sudo systemctl status aggregate-apparel --no-pager -l"
+   ssh ubuntu@<VPS_IP> "sudo systemctl restart aggregate-apparel && sudo systemctl status aggregate-apparel --no-pager -l"
    ```
    Confirm the status output shows `Active: active (running)` with no errors.
 5. Verify live at `https://gamingapparel.gg`.
@@ -201,7 +202,7 @@ To add a new franchise write-up:
     uvicorn api:app --reload running) to confirm it reads well and renders
     correctly.
 4. Push the updated database to production:
-    scp apparel_aggregator.db ubuntu@REDACTED_VPS_IP:/opt/aggregate_apparel/apparel_aggregator.db 
+    scp apparel_aggregator.db ubuntu@<VPS_IP>:/opt/aggregate_apparel/apparel_aggregator.db 
 
 ---
 
@@ -210,15 +211,19 @@ To add a new franchise write-up:
 - **Local machine**: all scraping/discovery compute happens here
   (`scraper.py`, `franchise_discovery.py`, `parsers/`). This is intentional -
   keeps paid cloud compute costs down.
-- **Production VPS** (`REDACTED_VPS_IP`, path `/opt/aggregate_apparel/`):
-  read-only FastAPI app (`api.py`) serving whatever database you last pushed.
-  `ENABLE_SCRAPER_SCHEDULER=false` is set permanently there - do not change
-  this, it's what keeps the scraper from ever running on the cloud instance.
+- **Production VPS** (IP kept in your local PowerShell profile only - see
+  below - path `/opt/aggregate_apparel/`): read-only FastAPI app (`api.py`)
+  serving whatever database you last pushed. `ENABLE_SCRAPER_SCHEDULER=false`
+  is set permanently there - do not change this, it's what keeps the scraper
+  from ever running on the cloud instance.
 - **`sync_to_cloud.ps1`**: an existing helper script that can run the scraper
-  and push the database in one command. Its connection defaults (VPS IP,
-  user, SSH key path, remote path) are already hardcoded for this project, so
+  and push the database in one command. It reads its connection details
+  (VPS IP, user, SSH key path, remote path) from environment variables -
+  set `$env:CLOUD_SSH_HOST` (and optionally `$env:CLOUD_SSH_USER`,
+  `$env:CLOUD_SSH_KEY`, `$env:CLOUD_REMOTE_PATH`) once in your PowerShell
+  profile so the real VPS IP never has to live in this repo. Once set,
   running `.\sync_to_cloud.ps1` (from `Aggregate_Apparel_Tool`) works with no
-  setup - you'll just be prompted for your SSH key passphrase. Use
+  further setup - you'll just be prompted for your SSH key passphrase. Use
   `.\sync_to_cloud.ps1 -SkipScrape` to only push the existing local database
   without re-scraping first. It only handles the database, not
   template/code/CSS files - those still need manual `scp` per the "Deploying
